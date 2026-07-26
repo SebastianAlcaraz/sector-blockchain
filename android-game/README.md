@@ -18,17 +18,28 @@ Un único ejercicio funcional: **la hoja de personaje**.
 - `model/DefaultSkills.kt`: listado de habilidades de partida, agrupadas
   por categoría (Naturales, Sociales, Culturales, Artísticas, Profesionales,
   Combate).
-- `ui/CharacterSheetScreen.kt`: pantalla Compose editable con identidad,
-  características, estadísticas derivadas (se recalculan solas), lista de
-  habilidades con puntos asignables, y trasfondo del personaje.
+- `ui/CharacterSheetScreen.kt`: pantalla Compose editable con creación por
+  dados, identidad, características, estadísticas derivadas (se recalculan
+  solas), lista de habilidades con puntos asignables, y trasfondo del
+  personaje.
 - `MainActivity.kt`: aloja la pantalla anterior con estado en memoria (aún
   no se persiste entre sesiones).
+- `model/Reino.kt`: los 5 reinos de la Península Ibérica (Castilla, Aragón,
+  Portugal, Navarra, Granada). Se elige libremente, no se tira a dados.
+- `model/Profesion.kt`: modelo de profesión y una lista **provisional y sin
+  verificar** de ~21 profesiones (el manual real tiene 44 — no hemos podido
+  conseguir la lista completa, ver advertencia en el propio archivo).
+- `model/CreacionPersonaje.kt`: motor de creación de personaje "a dados"
+  (categoría social, profesión, dinero inicial, bono extraordinario de
+  1/100). Todas las funciones están comentadas a fondo y aceptan un
+  parámetro `dado` sustituible para poder depurarlas con valores fijos.
 
-⚠️ Las fórmulas de Puntos de Vida y Templanza son una aproximación razonada
-(siguiendo la convención habitual de los sistemas BRP en los que se basa
-Aquelarre), no una transcripción literal del manual: no hemos podido
-verificar el texto exacto de tu edición del libro. Si tienes el manual a
-mano, compáralas y dime los valores exactos para ajustarlas.
+⚠️ Las fórmulas de Puntos de Vida y Templanza, la tabla de probabilidades de
+categoría social, y la lista de profesiones son aproximaciones razonadas
+(no transcripciones literales del manual): no hemos podido verificar el
+texto exacto de tu edición del libro porque las páginas donde se citan
+quedaron bloqueadas para las herramientas de este entorno. Si tienes el
+manual a mano, compáralas y dime los valores exactos para ajustarlas.
 
 ## Descargar el APK sin instalar nada (desde el móvil)
 
@@ -60,9 +71,16 @@ eso la compilación se delega a GitHub Actions.
 
 ## Próximos pasos posibles
 
+- Completar `profesionesConocidas()` con las 44 profesiones reales del
+  manual (bloqueante: falta conseguir el texto exacto).
+- Decidir si el Clero es una categoría social aparte o se reparte entre las
+  5 actuales.
+- Que el Reino de origen filtre de verdad categorías/profesiones/etnias
+  compatibles (de momento solo se guarda, no filtra nada).
+- Aplicar el bono extraordinario de creación directamente a las
+  competencias primarias de la profesión elegida (hace falta primero saber
+  qué 4 competencias son primarias en cada profesión).
 - Persistencia (Room o DataStore) para guardar personajes.
-- Pantalla de creación de personaje paso a paso (tirada de características,
-  elección de categoría social y profesión).
-- Sistema de tiradas de dados y resolución de habilidades.
+- Tirada de características (en vez de solo edición manual).
 - Inventario y equipo con peso/capacidad de carga.
 - Pantalla de combate.

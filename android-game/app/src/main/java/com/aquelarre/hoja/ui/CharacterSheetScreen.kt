@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -29,8 +30,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.aquelarre.hoja.model.CategoriaHabilidad
 import com.aquelarre.hoja.model.CategoriaSocial
+import com.aquelarre.hoja.model.CreacionPersonaje
 import com.aquelarre.hoja.model.Habilidad
 import com.aquelarre.hoja.model.HojaDePersonaje
+import com.aquelarre.hoja.model.Reino
+import com.aquelarre.hoja.model.ResultadoCreacion
 
 @Composable
 fun CharacterSheetScreen(
@@ -50,6 +54,13 @@ fun CharacterSheetScreen(
                 text = "Hoja de Personaje",
                 style = MaterialTheme.typography.titleLarge
             )
+        }
+
+        item {
+            // Esta sección va ANTES de Identidad a propósito: sus
+            // resultados (categoría social, profesión y dinero) rellenan
+            // los campos de la sección de Identidad justo debajo.
+            CreacionPorDadosSection(character, onCharacterChange)
         }
 
         item {
@@ -100,6 +111,129 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
             Text(text = title, style = MaterialTheme.typography.titleMedium)
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             content()
+        }
+    }
+}
+
+/**
+ * Sección de "creación por dados": el jugador elige el Reino de origen
+ * (no se tira, se elige libremente) y luego puede tirar tantas veces
+ * como quiera la categoría social + profesión + dinero inicial + bono
+ * extraordinario, usando el motor CreacionPersonaje. El resultado de la
+ * tirada se muestra en pantalla pero NO se aplica a la hoja de personaje
+ * hasta que el jugador pulsa "Aplicar al personaje" — así se puede volver
+ * a tirar si el resultado no convence, sin perder lo que ya hubiera en la
+ * hoja.
+ */
+@Composable
+private fun CreacionPorDadosSection(
+    character: HojaDePersonaje,
+    onCharacterChange: (HojaDePersonaje) -> Unit
+) {
+    // `resultado` guarda la última tirada mientras el jugador decide si
+    // la aplica o no. Al ser un estado de Compose (remember + mutableStateOf),
+    // cada vez que cambia se vuelve a dibujar esta sección automáticamente.
+    var resultado by remember { mutableStateOf<ResultadoCreacion?>(null) }
+
+    SectionCard(title = "Creación por dados") {
+        Text(
+            text = "Elige el reino de origen y tira los dados para obtener " +
+                "categoría social, profesión y dinero inicial.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        // --- Selector de Reino: aquí SÍ se elige, no se tira ---
+        var reinoExpandido by remember { mutableStateOf(false) }
+        Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            OutlinedTextField(
+                value = character.reino.etiqueta,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Reino de origen") },
+                trailingIcon = {
+                    IconButton(onClick = { reinoExpandido = true }) {
+                        Text("▾", style = MaterialTheme.typography.titleMedium)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            DropdownMenu(
+                expanded = reinoExpandido,
+                onDismissRequest = { reinoExpandido = false },
+                modifier = Modifier.fillMaxWidth(0.9f)
+            ) {
+                Reino.entries.forEach { reino ->
+                    DropdownMenuItem(
+                        text = { Text(reino.etiqueta) },
+                        onClick = {
+                            // Guardamos el reino elegido directamente en el
+                            // personaje: no hace falta tirar dados para esto.
+                            onCharacterChange(character.copy(reino = reino))
+                            reinoExpandido = false
+                        }
+                    )
+                }
+            }
+        }
+
+        // Botón "Tirar": llama al motor CreacionPersonaje.generar(), que
+        // internamente tira categoría social, profesión, dinero y el bono
+        // extraordinario de 1/100. El resultado se guarda en `resultado`
+        // para mostrarlo, pero la hoja de personaje todavía no cambia.
+        Button(
+            onClick = { resultado = CreacionPersonaje.generar(character.reino) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        ) {
+            Text("Tirar categoría social y profesión")
+        }
+
+        // Si ya hay un resultado de una tirada anterior, lo mostramos con
+        // un botón para confirmarlo y volcarlo a la hoja de personaje.
+        val resultadoActual = resultado
+        if (resultadoActual != null) {
+            Column(modifier = Modifier.padding(top = 8.dp)) {
+                DerivadaRow("Categoría social", resultadoActual.categoriaSocial.etiqueta)
+                DerivadaRow("Profesión", resultadoActual.profesion.nombre)
+                DerivadaRow("Dinero inicial", "${resultadoActual.dineroInicial} reales")
+
+                // El bono extraordinario solo se muestra cuando ha salido
+                // (puntosBonoPrimarias > 0); si no ha salido, no se enseña
+                // esta fila para no confundir con un "0" sin contexto.
+                if (resultadoActual.puntosBonoPrimarias > 0) {
+                    DerivadaRow(
+                        "¡Bono extraordinario!",
+                        "+${resultadoActual.puntosBonoPrimarias} puntos en habilidades principales"
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        // Aquí es donde el resultado de la tirada se copia
+                        // de verdad a la hoja de personaje. El dinero se
+                        // guarda como texto (p.ej. "1825 reales") porque el
+                        // campo `dinero` de HojaDePersonaje es de tipo
+                        // String, pensado para anotaciones libres.
+                        onCharacterChange(
+                            character.copy(
+                                categoriaSocial = resultadoActual.categoriaSocial,
+                                profesion = resultadoActual.profesion.nombre,
+                                dinero = "${resultadoActual.dineroInicial} reales"
+                            )
+                        )
+                        // Limpiamos el resultado mostrado: ya está aplicado,
+                        // así que no tiene sentido seguir viendo el botón
+                        // de "Aplicar" hasta la siguiente tirada.
+                        resultado = null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                ) {
+                    Text("Aplicar al personaje")
+                }
+            }
         }
     }
 }

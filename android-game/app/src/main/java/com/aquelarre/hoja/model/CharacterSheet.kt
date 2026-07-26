@@ -1,16 +1,39 @@
 package com.aquelarre.hoja.model
 
 /**
- * Categoría social del personaje. Determina el punto de partida de dinero,
- * profesiones disponibles y algunos modificadores de habilidades.
+ * Categoría social del personaje.
+ *
+ * Elegida por el usuario tras investigar varias fuentes (no tenemos el
+ * texto exacto del manual, ver conversación): son las 5 categorías
+ * "económicas" que aparecieron citadas de forma repetida en foros y
+ * resúmenes de aficionados a Aquelarre, con el dinero de partida (en
+ * reales) que se menciona para cada una.
+ *
+ * NOTA PENDIENTE: no sabemos todavía si el Clero es una categoría social
+ * aparte en el manual real, o si el clero se reparte entre estas 5 (p.ej.
+ * un cura de pueblo como Baja Nobleza o Burguesía). Mientras no se aclare,
+ * las profesiones religiosas (Clérigo, Monje...) se han repartido "a
+ * ojo" en Profesion.kt.
+ *
+ * @param etiqueta texto legible para mostrar en la interfaz.
+ * @param dineroBase reales de partida que indica (según nuestras fuentes)
+ *   el manual para esta categoría social.
+ * @param dineroEsAleatorio si es true, el dinero inicial real no es fijo:
+ *   hay que tirar un porcentaje aleatorio de dineroBase (ver
+ *   CreacionPersonaje.calcularDineroInicial). Así lo pidió el usuario para
+ *   Alta Nobleza, Baja Nobleza y Burguesía. Si es false (Villanos y
+ *   Campesinos), el dinero inicial es siempre dineroBase completo.
  */
-enum class CategoriaSocial(val etiqueta: String) {
-    CLERO("Clero"),
-    NOBLEZA("Nobleza"),
-    PUEBLO("Pueblo llano"),
-    HAMPA_Y_MARGINADOS("Hampa y marginados"),
-    JUDIOS_Y_MORISCOS("Judíos y moriscos"),
-    EXTRANJEROS("Extranjeros")
+enum class CategoriaSocial(
+    val etiqueta: String,
+    val dineroBase: Int,
+    val dineroEsAleatorio: Boolean
+) {
+    ALTA_NOBLEZA("Alta Nobleza", 2500, true),
+    BAJA_NOBLEZA("Baja Nobleza", 1300, true),
+    BURGUESIA("Burguesía", 1500, true),
+    VILLANOS("Villanos", 200, false),
+    CAMPESINOS("Campesinos", 100, false)
 }
 
 enum class CategoriaHabilidad(val etiqueta: String) {
@@ -75,7 +98,11 @@ data class EstadisticasDerivadas(
 
 data class HojaDePersonaje(
     val nombre: String = "",
-    val categoriaSocial: CategoriaSocial = CategoriaSocial.PUEBLO,
+    // El reino de origen se elige libremente (no se tira a dados) y
+    // condiciona el resto de la creación del personaje: ver Reino.kt y
+    // CreacionPersonaje.kt para cómo se usa.
+    val reino: Reino = Reino.CASTILLA,
+    val categoriaSocial: CategoriaSocial = CategoriaSocial.CAMPESINOS,
     val profesion: String = "",
     val genero: String = "",
     val edad: Int = 20,
