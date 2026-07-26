@@ -227,4 +227,51 @@ object CreacionPersonaje {
             puntosBonoPrimarias = puntosBonoPrimarias
         )
     }
+
+    /**
+     * Convierte las 12 competencias de una profesión (4 principales + 8
+     * secundarias, ver Profesion.kt) en una lista de Habilidad lista para
+     * guardar en HojaDePersonaje.competenciasProfesion.
+     *
+     * Esto es lo que hace que "los puntos a repartir sean distintos según
+     * la profesión": cada competencia saca su valorBase de una
+     * característica concreta del personaje (Competencia.atributo), y las
+     * principales multiplican esa característica ×3 mientras que las
+     * secundarias se quedan en ×1. Como cada profesión elige atributos y
+     * competencias distintas, dos personajes con las mismas
+     * características pero profesiones distintas acaban con bases (y por
+     * tanto con habilidades) completamente diferentes.
+     *
+     * Todas las competencias generadas empiezan con puntosInvertidos = 0:
+     * el jugador reparte manualmente sus 100 puntos (+ el bono
+     * extraordinario si le ha tocado) desde la pantalla.
+     *
+     * @param profesion la profesión ya elegida (tirada o, en el futuro,
+     *   escogida a mano).
+     * @param atributos las características ACTUALES del personaje: si el
+     *   jugador cambia sus características después de generar las
+     *   competencias, hay que volver a llamar a esta función para que las
+     *   bases se recalculen (la pantalla ya lo hace así).
+     */
+    fun generarCompetencias(profesion: Profesion, atributos: Atributos): List<Habilidad> {
+        val principales = profesion.competenciasPrimarias.map { competencia ->
+            Habilidad(
+                nombre = competencia.nombre,
+                categoria = CategoriaHabilidad.PROFESIONAL,
+                valorBase = competencia.atributo.valorEn(atributos) * 3, // Principal: característica × 3
+                puntosInvertidos = 0,
+                esPrimariaDeProfesion = true
+            )
+        }
+        val secundarias = profesion.competenciasSecundarias.map { competencia ->
+            Habilidad(
+                nombre = competencia.nombre,
+                categoria = CategoriaHabilidad.PROFESIONAL,
+                valorBase = competencia.atributo.valorEn(atributos), // Secundaria: característica × 1
+                puntosInvertidos = 0,
+                esPrimariaDeProfesion = false
+            )
+        }
+        return principales + secundarias
+    }
 }

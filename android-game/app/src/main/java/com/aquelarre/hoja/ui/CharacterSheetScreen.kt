@@ -72,6 +72,12 @@ fun CharacterSheetScreen(
         }
 
         item {
+            // Va después de Características a propósito: las bases de
+            // estas competencias dependen de los atributos de arriba.
+            CompetenciasProfesionSection(character, onCharacterChange)
+        }
+
+        item {
             DerivadasSection(derivadas)
         }
 
@@ -215,11 +221,24 @@ private fun CreacionPorDadosSection(
                         // guarda como texto (p.ej. "1825 reales") porque el
                         // campo `dinero` de HojaDePersonaje es de tipo
                         // String, pensado para anotaciones libres.
+                        //
+                        // Además generamos las 12 competencias (4
+                        // principales + 8 secundarias) de la nueva
+                        // profesión a partir de las características
+                        // ACTUALES del personaje, y sustituimos por
+                        // completo las competencias de profesión que
+                        // hubiera antes: si repites la tirada, empiezas de
+                        // cero con la profesión nueva, no se mezclan.
                         onCharacterChange(
                             character.copy(
                                 categoriaSocial = resultadoActual.categoriaSocial,
                                 profesion = resultadoActual.profesion.nombre,
-                                dinero = "${resultadoActual.dineroInicial} reales"
+                                dinero = "${resultadoActual.dineroInicial} reales",
+                                competenciasProfesion = CreacionPersonaje.generarCompetencias(
+                                    profesion = resultadoActual.profesion,
+                                    atributos = character.atributos
+                                ),
+                                puntosBonoDisponibles = resultadoActual.puntosBonoPrimarias
                             )
                         )
                         // Limpiamos el resultado mostrado: ya está aplicado,
@@ -423,35 +442,155 @@ private fun HabilidadesCategoriaSection(
 ) {
     SectionCard(title = categoria.etiqueta) {
         habilidades.forEach { habilidad ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "${habilidad.nombre} (${habilidad.total})",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = {
+            HabilidadRow(
+                habilidad = habilidad,
+                onDecrementar = {
                     if (habilidad.puntosInvertidos > 0) {
                         onPuntosChange(habilidad, habilidad.puntosInvertidos - 5)
                     }
-                }) {
-                    Text("−", style = MaterialTheme.typography.titleMedium)
+                },
+                onIncrementar = { onPuntosChange(habilidad, habilidad.puntosInvertidos + 5) }
+            )
+        }
+    }
+}
+
+/**
+ * Sección de las 12 competencias (4 principales + 8 secundarias) de la
+ * profesión aplicada al personaje. No se muestra nada si todavía no se ha
+ * aplicado ninguna profesión (competenciasProfesion vacía).
+ *
+ * Presupuesto de puntos, tal y como se acordó con el usuario:
+ *  - Hay 100 puntos "normales" para repartir entre las 12 competencias
+ *    (principales y secundarias indistintamente).
+ *  - Si salió el bono extraordinario de creación (puntosBonoDisponibles >
+ *    0), esos puntos de más SOLO se pueden gastar en las 4 competencias
+ *    PRINCIPALES, nunca en las secundarias.
+ *  - Ninguna competencia puede superar base×5 (tope que aparece citado en
+ *    varios resúmenes de las reglas reales).
+ *
+ * Cómo se aplica esto en el código de abajo: en vez de llevar dos
+ * "montones" de puntos separados, miramos el total ya gastado
+ * (puntosInvertidos sumados de las 12 competencias) y comparamos contra
+ * dos límites distintos según si el botón "+" que se ha pulsado es de una
+ * competencia principal o secundaria:
+ *  - Botón "+" de una SECUNDARIA: solo funciona si el total gastado
+ *    todavía no llega a 100 (así nunca se puede colar en la parte que
+ *    corresponde al bono).
+ *  - Botón "+" de una PRINCIPAL: funciona si el total gastado no llega a
+ *    100 + puntosBonoDisponibles (puede usar tanto el fondo común de 100
+ *    como el bono).
+ */
+@Composable
+private fun CompetenciasProfesionSection(
+    character: HojaDePersonaje,
+    onCharacterChange: (HojaDePersonaje) -> Unit
+) {
+    if (character.competenciasProfesion.isEmpty()) return
+
+    val totalInvertido = character.competenciasProfesion.sumOf { it.puntosInvertidos }
+    val limitePrincipales = 100 + character.puntosBonoDisponibles
+    val limiteSecundarias = 100
+
+    fun actualizarCompetencia(habilidad: Habilidad, nuevosPuntos: Int) {
+        val actualizadas = character.competenciasProfesion.map {
+            if (it === habilidad) it.copy(puntosInvertidos = nuevosPuntos) else it
+        }
+        onCharacterChange(character.copy(competenciasProfesion = actualizadas))
+    }
+
+    SectionCard(title = "Competencias de la profesión (${character.profesion})") {
+        Text(
+            text = if (character.puntosBonoDisponibles > 0) {
+                "Puntos repartidos: $totalInvertido / 100 " +
+                    "(+${character.puntosBonoDisponibles} de bono, solo en principales)"
+            } else {
+                "Puntos repartidos: $totalInvertido / 100"
+            },
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        val principales = character.competenciasProfesion.filter { it.esPrimariaDeProfesion }
+        val secundarias = character.competenciasProfesion.filterNot { it.esPrimariaDeProfesion }
+
+        Text(
+            text = "Principales",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        principales.forEach { habilidad ->
+            HabilidadRow(
+                habilidad = habilidad,
+                onDecrementar = {
+                    if (habilidad.puntosInvertidos > 0) {
+                        actualizarCompetencia(habilidad, habilidad.puntosInvertidos - 5)
+                    }
+                },
+                onIncrementar = {
+                    val cabeEnElTope = habilidad.puntosInvertidos + 5 <= habilidad.valorBase * 5
+                    val quedaPresupuesto = totalInvertido + 5 <= limitePrincipales
+                    if (cabeEnElTope && quedaPresupuesto) {
+                        actualizarCompetencia(habilidad, habilidad.puntosInvertidos + 5)
+                    }
                 }
-                Text(
-                    text = habilidad.puntosInvertidos.toString(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.width(24.dp)
-                )
-                IconButton(onClick = {
-                    onPuntosChange(habilidad, habilidad.puntosInvertidos + 5)
-                }) {
-                    Text("+", style = MaterialTheme.typography.titleMedium)
+            )
+        }
+
+        Text(
+            text = "Secundarias",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        secundarias.forEach { habilidad ->
+            HabilidadRow(
+                habilidad = habilidad,
+                onDecrementar = {
+                    if (habilidad.puntosInvertidos > 0) {
+                        actualizarCompetencia(habilidad, habilidad.puntosInvertidos - 5)
+                    }
+                },
+                onIncrementar = {
+                    val cabeEnElTope = habilidad.puntosInvertidos + 5 <= habilidad.valorBase * 5
+                    // Las secundarias nunca tocan el bono: su tope de
+                    // presupuesto es siempre 100, aunque haya bono activo.
+                    val quedaPresupuesto = totalInvertido + 5 <= limiteSecundarias
+                    if (cabeEnElTope && quedaPresupuesto) {
+                        actualizarCompetencia(habilidad, habilidad.puntosInvertidos + 5)
+                    }
                 }
-            }
+            )
+        }
+    }
+}
+
+/** Fila reutilizable de "nombre (total) [-] puntos [+]" para una habilidad. */
+@Composable
+private fun HabilidadRow(
+    habilidad: Habilidad,
+    onDecrementar: () -> Unit,
+    onIncrementar: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "${habilidad.nombre} (${habilidad.total})",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onDecrementar) {
+            Text("−", style = MaterialTheme.typography.titleMedium)
+        }
+        Text(
+            text = habilidad.puntosInvertidos.toString(),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.width(24.dp)
+        )
+        IconButton(onClick = onIncrementar) {
+            Text("+", style = MaterialTheme.typography.titleMedium)
         }
     }
 }

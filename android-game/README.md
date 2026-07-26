@@ -26,13 +26,28 @@ Un único ejercicio funcional: **la hoja de personaje**.
   no se persiste entre sesiones).
 - `model/Reino.kt`: los 5 reinos de la Península Ibérica (Castilla, Aragón,
   Portugal, Navarra, Granada). Se elige libremente, no se tira a dados.
-- `model/Profesion.kt`: modelo de profesión y una lista **provisional y sin
-  verificar** de ~21 profesiones (el manual real tiene 44 — no hemos podido
-  conseguir la lista completa, ver advertencia en el propio archivo).
+- `model/Profesion.kt`: modelo de profesión (incluye ahora sus 4
+  competencias principales y 8 secundarias, cada una ligada a una
+  característica) y una lista **provisional y sin verificar** de ~21
+  profesiones (el manual real tiene 44 — no hemos podido conseguir la
+  lista completa ni sus competencias exactas, ver advertencia en el
+  propio archivo; probado incluso con un navegador real contra la 3ª
+  edición en anyflip, bloqueado por política de red del entorno).
 - `model/CreacionPersonaje.kt`: motor de creación de personaje "a dados"
   (categoría social, profesión, dinero inicial, bono extraordinario de
-  1/100). Todas las funciones están comentadas a fondo y aceptan un
-  parámetro `dado` sustituible para poder depurarlas con valores fijos.
+  1/100, generación de las 12 competencias de la profesión). Todas las
+  funciones están comentadas a fondo y aceptan un parámetro `dado`
+  sustituible para poder depurarlas con valores fijos.
+
+### Los puntos a repartir SÍ dependen de la profesión
+
+Cada profesión da 4 competencias **principales** (base = característica ×
+3) y 8 **secundarias** (base = característica × 1); dos personajes con las
+mismas características pero profesiones distintas acaban con habilidades
+muy distintas. El jugador reparte 100 puntos entre esas 12 competencias
+(tope de base×5 por competencia); si le tocó el bono extraordinario de
+creación, esos puntos de más solo se pueden gastar en las 4 principales.
+Ver `CompetenciasProfesionSection` en la pantalla.
 
 ⚠️ Las fórmulas de Puntos de Vida y Templanza, la tabla de probabilidades de
 categoría social, y la lista de profesiones son aproximaciones razonadas
@@ -81,14 +96,12 @@ eso la compilación se delega a GitHub Actions.
 ## Próximos pasos posibles
 
 - Completar `profesionesConocidas()` con las 44 profesiones reales del
-  manual (bloqueante: falta conseguir el texto exacto).
+  manual y sus competencias exactas (bloqueante: falta conseguir el texto
+  exacto — envía fotos/texto de esas páginas cuando puedas).
 - Decidir si el Clero es una categoría social aparte o se reparte entre las
   5 actuales.
 - Que el Reino de origen filtre de verdad categorías/profesiones/etnias
   compatibles (de momento solo se guarda, no filtra nada).
-- Aplicar el bono extraordinario de creación directamente a las
-  competencias primarias de la profesión elegida (hace falta primero saber
-  qué 4 competencias son primarias en cada profesión).
 - Persistencia (Room o DataStore) para guardar personajes.
 - Tirada de características (en vez de solo edición manual).
 - Inventario y equipo con peso/capacidad de carga.

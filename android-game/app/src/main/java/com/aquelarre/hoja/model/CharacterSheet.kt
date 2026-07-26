@@ -64,7 +64,14 @@ data class Habilidad(
     val nombre: String,
     val categoria: CategoriaHabilidad,
     val valorBase: Int,
-    val puntosInvertidos: Int = 0
+    val puntosInvertidos: Int = 0,
+    // Solo tiene sentido para las habilidades que viven en
+    // HojaDePersonaje.competenciasProfesion (ver más abajo): distingue
+    // las 4 competencias PRINCIPALES de una profesión (base = atributo×3)
+    // de sus 8 competencias SECUNDARIAS (base = atributo×1). Para las
+    // habilidades "comunes" de DefaultSkills.kt este campo se queda en
+    // false y no se usa para nada.
+    val esPrimariaDeProfesion: Boolean = false
 ) {
     val total: Int get() = valorBase + puntosInvertidos
 }
@@ -110,7 +117,20 @@ data class HojaDePersonaje(
     val estatura: String = "",
     val peso: String = "",
     val atributos: Atributos = Atributos(),
+    // Habilidades "comunes": las de DefaultSkills.kt, iguales para
+    // cualquier personaje sea cual sea su profesión.
     val habilidades: List<Habilidad> = emptyList(),
+    // Las 12 competencias (4 principales + 8 secundarias) de la profesión
+    // elegida, generadas por CreacionPersonaje al pulsar "Aplicar al
+    // personaje". Es una lista aparte de `habilidades` a propósito: así
+    // no se mezclan con las habilidades comunes y podemos controlar su
+    // propio presupuesto de 100 puntos (ver puntosBonoDisponibles y
+    // CompetenciasProfesionSection en la UI).
+    val competenciasProfesion: List<Habilidad> = emptyList(),
+    // Puntos extra ganados por el bono extraordinario de creación (1
+    // posibilidad entre 100, ver CreacionPersonaje.comprobarBonoExtraordinario).
+    // Solo se pueden gastar en competencias PRINCIPALES de la profesión.
+    val puntosBonoDisponibles: Int = 0,
     val armas: List<Arma> = emptyList(),
     val dinero: String = "",
     val posesiones: List<String> = emptyList(),

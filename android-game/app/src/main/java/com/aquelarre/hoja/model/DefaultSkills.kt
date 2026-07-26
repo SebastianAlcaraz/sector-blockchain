@@ -35,12 +35,12 @@ fun habilidadesPorDefecto(): List<Habilidad> = listOf(
     Habilidad("Cocinar", CategoriaHabilidad.ARTISTICA, 5),
     Habilidad("Tocar instrumento", CategoriaHabilidad.ARTISTICA, 0),
 
-    // Profesionales
-    Habilidad("Artesanía", CategoriaHabilidad.PROFESIONAL, 0),
-    Habilidad("Comerciar", CategoriaHabilidad.PROFESIONAL, 5),
-    Habilidad("Montar", CategoriaHabilidad.PROFESIONAL, 5),
-    Habilidad("Rastrear", CategoriaHabilidad.PROFESIONAL, 0),
-    Habilidad("Cazar/Pescar", CategoriaHabilidad.PROFESIONAL, 5),
+    // Nota: la categoría "Profesionales" (Artesanía, Comerciar, Montar,
+    // Rastrear...) ya no vive aquí. Ahora esas habilidades salen de la
+    // profesión del personaje, con un valor base propio según sus
+    // características y un presupuesto de 100 puntos aparte: ver
+    // Profesion.kt (competenciasPrimarias/competenciasSecundarias) y la
+    // sección "Competencias de la profesión" en la pantalla.
 
     // Combate
     Habilidad("Arma cuerpo a cuerpo", CategoriaHabilidad.COMBATE, 15),
