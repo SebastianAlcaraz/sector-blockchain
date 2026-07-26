@@ -30,19 +30,33 @@ Aquelarre), no una transcripción literal del manual: no hemos podido
 verificar el texto exacto de tu edición del libro. Si tienes el manual a
 mano, compáralas y dime los valores exactos para ajustarlas.
 
-## Cómo abrirlo
+## Descargar el APK sin instalar nada (desde el móvil)
+
+Cada push a `android-game/**` dispara un workflow de GitHub Actions
+(`.github/workflows/android-game-build.yml`) que compila un APK de
+depuración en la nube:
+
+1. En GitHub, entra a la pestaña **Actions** del repo (funciona desde el
+   navegador del móvil).
+2. Abre la ejecución más reciente de "Android Game - Build APK".
+3. Descarga el artefacto `aquelarre-rpg-debug-apk` (es un .zip con el
+   `.apk` dentro).
+4. Extrae el .zip en el móvil y toca el `.apk` para instalarlo (Android
+   pedirá permiso para "instalar apps de origen desconocido" la primera
+   vez — es normal en un APK de depuración sin firmar por Play Store).
+
+## Cómo abrirlo en Android Studio (opcional, para desarrollar)
 
 1. Instala [Android Studio](https://developer.android.com/studio) (última
-   versión estable).
+   versión estable) en un PC/Mac.
 2. `Abrir proyecto` → selecciona la carpeta `android-game/`.
-3. Si Android Studio pide generar el *Gradle Wrapper*, acepta (o ejecuta
-   `gradle wrapper` una vez si tienes Gradle instalado localmente) — el
-   `gradlew`/`gradlew.bat` no se incluye en el repo porque son binarios.
+3. El Gradle Wrapper (`gradlew`, `gradle/wrapper/`) ya está incluido en el
+   repo, así que no hace falta generarlo.
 4. Ejecuta en un emulador o en tu móvil con la depuración USB activada.
 
-No se puede compilar ni probar el APK desde este entorno remoto (no tiene
-Android SDK/emulador instalado); el código está listo para abrirlo y
-ejecutarlo desde tu Android Studio.
+Este entorno remoto tampoco puede compilar el APK localmente (no tiene
+Android SDK ni acceso a los servidores de Google para descargarlo), por
+eso la compilación se delega a GitHub Actions.
 
 ## Próximos pasos posibles
 
