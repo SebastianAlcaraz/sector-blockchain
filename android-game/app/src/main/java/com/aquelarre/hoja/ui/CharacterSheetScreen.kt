@@ -264,7 +264,7 @@ private fun AttributeField(
 private fun DerivadasSection(derivadas: com.aquelarre.hoja.model.EstadisticasDerivadas) {
     SectionCard(title = "Estadísticas derivadas") {
         DerivadaRow("Puntos de vida", derivadas.puntosDeVida.toString())
-        DerivadaRow("Puntos de cordura", derivadas.puntosDeCordura.toString())
+        DerivadaRow("Templanza", derivadas.templanza.toString())
         DerivadaRow("Bonificador de combate", derivadas.bonificadorCombate.toString())
         DerivadaRow("Bonificador al daño", derivadas.bonificadorDano)
         DerivadaRow("Resistencia al dolor", derivadas.resistenciaAlDolor.toString())

@@ -54,13 +54,19 @@ data class Arma(
 )
 
 /**
- * Estadísticas derivadas de los atributos base. Las fórmulas son una
- * aproximación de trabajo para el prototipo y conviene contrastarlas con el
- * manual antes de usarlas en partida.
+ * Estadísticas derivadas de los atributos base.
+ *
+ * Aquelarre no tiene una característica de "Cordura" al estilo La Llamada de
+ * Cthulhu: la fuerza de voluntad frente al miedo se llama Templanza. Aun así,
+ * las fórmulas exactas de Puntos de Vida y Templanza varían algo entre
+ * ediciones del manual (1990, 2ª ed., 3ª ed. 2015, La Tentación 2023) y no
+ * hemos podido verificarlas página a página, así que son una aproximación
+ * razonada siguiendo la convención habitual de los sistemas BRP en los que
+ * se basa Aquelarre: conviene contrastarlas con tu ejemplar del manual.
  */
 data class EstadisticasDerivadas(
     val puntosDeVida: Int,
-    val puntosDeCordura: Int,
+    val templanza: Int,
     val bonificadorCombate: Int,
     val bonificadorDano: String,
     val resistenciaAlDolor: Int,
@@ -86,8 +92,14 @@ data class HojaDePersonaje(
     fun calcularDerivadas(): EstadisticasDerivadas {
         val a = atributos
         return EstadisticasDerivadas(
-            puntosDeVida = a.constitucion,
-            puntosDeCordura = (a.poder + a.instruccion) / 2,
+            // Sin Talla/Tamaño en Aquelarre (personajes siempre humanos), la
+            // vida sale de la robustez física: media de Fuerza y Constitución,
+            // redondeada hacia arriba, como en el resto de la familia BRP.
+            puntosDeVida = kotlin.math.ceil((a.fuerza + a.constitucion) / 2.0).toInt(),
+            // Templanza = fuerza de voluntad ante el miedo y lo sobrenatural:
+            // suma de Poder (fortaleza espiritual), Constitución (aguante) e
+            // Instrucción (capacidad de razonar el horror), sin promediar.
+            templanza = a.poder + a.constitucion + a.instruccion,
             bonificadorCombate = (a.fuerza + a.destreza - 20) / 2,
             bonificadorDano = danoPorFuerza(a.fuerza),
             resistenciaAlDolor = a.constitucion,

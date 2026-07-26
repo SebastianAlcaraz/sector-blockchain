@@ -12,7 +12,9 @@ Un único ejercicio funcional: **la hoja de personaje**.
 
 - `model/CharacterSheet.kt`: modelo de datos (`HojaDePersonaje`,
   `Atributos`, `Habilidad`, `Arma`, `EstadisticasDerivadas`) y las fórmulas
-  para calcular puntos de vida, cordura, bonificador de combate, etc.
+  para calcular puntos de vida, Templanza (fuerza de voluntad ante el miedo;
+  Aquelarre no usa "Cordura", eso es de La Llamada de Cthulhu), bonificador
+  de combate, etc.
 - `model/DefaultSkills.kt`: listado de habilidades de partida, agrupadas
   por categoría (Naturales, Sociales, Culturales, Artísticas, Profesionales,
   Combate).
@@ -22,9 +24,11 @@ Un único ejercicio funcional: **la hoja de personaje**.
 - `MainActivity.kt`: aloja la pantalla anterior con estado en memoria (aún
   no se persiste entre sesiones).
 
-⚠️ Las fórmulas de estadísticas derivadas (vida, cordura, daño...) son una
-aproximación de trabajo, no una transcripción literal del manual. Conviene
-revisarlas y ajustarlas antes de usarlas en partida real.
+⚠️ Las fórmulas de Puntos de Vida y Templanza son una aproximación razonada
+(siguiendo la convención habitual de los sistemas BRP en los que se basa
+Aquelarre), no una transcripción literal del manual: no hemos podido
+verificar el texto exacto de tu edición del libro. Si tienes el manual a
+mano, compáralas y dime los valores exactos para ajustarlas.
 
 ## Cómo abrirlo
 
