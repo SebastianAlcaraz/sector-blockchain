@@ -1,13 +1,11 @@
 package com.aquelarre.hoja.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -126,12 +124,12 @@ private fun IdentidadSection(
                 onValueChange = {},
                 readOnly = true,
                 label = { Text("Categoría social") },
+                trailingIcon = {
+                    IconButton(onClick = { expanded = true }) {
+                        Text("▾", style = MaterialTheme.typography.titleMedium)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable { expanded = true }
             )
             DropdownMenu(
                 expanded = expanded,
