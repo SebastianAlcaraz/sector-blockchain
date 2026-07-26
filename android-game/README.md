@@ -47,6 +47,15 @@ Cada push a `android-game/**` dispara un workflow de GitHub Actions
 (`.github/workflows/android-game-build.yml`) que compila un APK de
 depuración en la nube:
 
+⚠️ Si ya tenías instalada una versión del APK anterior a este cambio y
+Android te da un error de "conflicto con un paquete" al instalar la
+nueva: desinstala la app una vez (los datos de esa versión se perderán,
+todavía no hay persistencia) y vuelve a instalar el nuevo APK. La causa
+era que cada build de CI firmaba el APK con una clave de depuración
+distinta y aleatoria; ahora el proyecto incluye un `debug.keystore` fijo
+(`app/debug.keystore`) para que todas las versiones futuras se firmen
+igual y las actualizaciones se instalen sin conflicto.
+
 1. En GitHub, entra a la pestaña **Actions** del repo (funciona desde el
    navegador del móvil).
 2. Abre la ejecución más reciente de "Android Game - Build APK".
