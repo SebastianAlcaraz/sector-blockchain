@@ -1,0 +1,605 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>Asistente de inversión</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: barra superior con pestañas, contenido en una columna de hasta 1180px; tablas y gráficos a ancho completo. */
+:root {
+  --bg: #f5f7f9;
+  --panel: #ffffff;
+  --ink: #142231;
+  --ink-2: #4a5a6b;
+  --ink-3: #7d8a97;
+  --line: #dde3e9;
+  --accent: #1d5e8c;
+  --accent-soft: #e3eef6;
+  --up: #17855a;
+  --down: #c2413a;
+  --warn-bg: #fff4dc;
+  --warn-ink: #7a5300;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --heat-neg: #2a78d6; --heat-mid: #eef0f2; --heat-pos: #e34948;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10171e; --panel: #172029; --ink: #e8edf2; --ink-2: #aab6c2; --ink-3: #7c8996;
+    --line: #2a3642; --accent: #6aaee0; --accent-soft: #1d3346; --up: #3fbf88; --down: #ef6f68;
+    --warn-bg: #3a2e12; --warn-ink: #f2cf7a;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --heat-neg: #3987e5; --heat-mid: #24303b; --heat-pos: #e66767;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10171e; --panel: #172029; --ink: #e8edf2; --ink-2: #aab6c2; --ink-3: #7c8996;
+  --line: #2a3642; --accent: #6aaee0; --accent-soft: #1d3346; --up: #3fbf88; --down: #ef6f68;
+  --warn-bg: #3a2e12; --warn-ink: #f2cf7a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --heat-neg: #3987e5; --heat-mid: #24303b; --heat-pos: #e66767;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+.top-inner { display: flex; align-items: center; gap: 24px; padding-block: 10px; flex-wrap: wrap; }
+.brand { font-family: var(--f-display); font-weight: 700; font-size: 20px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.brand svg { flex: none; }
+nav.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; }
+nav.tabs a { color: var(--ink-2); text-decoration: none; padding: 7px 12px; border-radius: 7px; font-weight: 500; white-space: nowrap; font-size: 14px; }
+nav.tabs a:hover { background: var(--accent-soft); color: var(--ink); }
+nav.tabs a[aria-current="page"] { background: var(--accent); color: var(--panel); }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.notice { background: var(--warn-bg); color: var(--warn-ink); font-size: 13px; }
+.notice .wrap { padding-block: 7px; }
+main { padding-block: 24px 48px; }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: clamp(26px, 4vw, 34px); letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 4px; text-wrap: balance; }
+h2 { font-family: var(--f-display); font-weight: 600; font-size: 20px; margin: 0 0 10px; text-wrap: balance; }
+.lede { color: var(--ink-2); margin: 0 0 20px; max-width: 70ch; }
+.muted { color: var(--ink-3); font-size: 13px; }
+.stack { display: flex; flex-direction: column; gap: 20px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; }
+.grid2 > * { min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label, .lbl { font-size: 12px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.05em; }
+select, input[type=number], input[type=text] { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; min-width: 0; }
+select { padding-right: 28px; }
+button { font: inherit; font-weight: 500; cursor: pointer; border-radius: 7px; padding: 7px 14px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+button.ghost { border-color: transparent; color: var(--ink-3); padding: 4px 8px; }
+button.ghost:hover { color: var(--down); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.kpi .v { font-family: var(--f-mono); font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.kpi .d { font-family: var(--f-mono); font-size: 13px; }
+.up { color: var(--up); } .down { color: var(--down); }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; font-size: 12px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.n, th.n { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+th.sortable { cursor: pointer; }
+th.sortable:hover { color: var(--ink); }
+tr:last-child td { border-bottom: 0; }
+.sym { font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid currentColor; }
+.score { display: inline-flex; align-items: center; gap: 8px; }
+.score .track { position: relative; width: 70px; height: 6px; background: var(--line); border-radius: 3px; }
+.score .track i { position: absolute; top: 0; height: 6px; border-radius: 3px; }
+.score .track b { position: absolute; left: 50%; top: -2px; width: 1px; height: 10px; background: var(--ink-3); }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart svg text { fill: var(--ink-3); font-family: var(--f-mono); font-size: 11px; }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.12); white-space: nowrap; z-index: 2; }
+.tip .t { font-weight: 600; margin-bottom: 3px; }
+.tip .r { display: flex; gap: 8px; align-items: center; font-family: var(--f-mono); }
+.tip .r i { width: 10px; height: 2px; display: inline-block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 2px; display: inline-block; }
+.legend i.dash { background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px) !important; }
+.hbars { display: flex; flex-direction: column; gap: 6px; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 160px) 1fr 70px; gap: 10px; align-items: center; font-size: 13px; }
+.hbar .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.hbar .bar { position: relative; height: 14px; }
+.hbar .bar i { position: absolute; top: 0; height: 14px; border-radius: 3px; }
+.hbar .bar b { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--line); }
+.hbar .val { font-family: var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.hbar.simple { grid-template-columns: minmax(90px, 140px) 1fr 60px; }
+.reasons { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); }
+.verdict { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.heat { display: grid; gap: 2px; font-size: 12px; }
+.heat div { padding: 8px 4px; text-align: center; font-family: var(--f-mono); border-radius: 3px; }
+.heat .h { font-family: var(--f-body); font-weight: 600; color: var(--ink-2); background: transparent; text-align: right; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heat .hc { text-align: center; padding-right: 4px; }
+.edit td { padding: 4px 6px; }
+.edit input { width: 100%; min-width: 80px; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; background: var(--accent-soft); color: var(--accent); padding: 2px 8px; border-radius: 4px; }
+.alert { border-left: 3px solid var(--down); padding: 6px 10px; background: var(--bg); font-size: 14px; border-radius: 0 6px 6px 0; }
+.guide { max-width: 75ch; }
+.guide h2 { margin-top: 18px; }
+.guide dt { font-weight: 600; }
+.guide dd { margin: 0 0 8px; color: var(--ink-2); }
+code { font-family: var(--f-mono); font-size: 13px; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 760px) { nav.tabs { flex-basis: 100%; } .top-inner { gap: 6px; } }
+@media (max-width: 560px) { .hbar { grid-template-columns: 90px 1fr 58px; } .kpi .v { font-size: 19px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18l5-6 4 3 7-9" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="6" r="2.2" fill="var(--up)"/></svg>
+      Asistente de inversión
+    </div>
+    <nav class="tabs" id="tabs" aria-label="Secciones">
+      <a href="#mercado">Mercado</a>
+      <a href="#activo">Analizar activo</a>
+      <a href="#comparar">Comparar</a>
+      <a href="#cartera">Mi cartera</a>
+      <a href="#simulador">Simulador</a>
+      <a href="#guia">Guía</a>
+    </nav>
+  </div>
+  <div class="notice"><div class="wrap">Precios <strong>simulados</strong> para practicar: no son cotizaciones reales. Para datos reales usa la versión de escritorio. Esto no es asesoramiento financiero.</div></div>
+</header>
+
+<main class="wrap" id="app"></main>
+
+<script>
+"use strict";
+// ======================================================= catálogo
+const CATALOG = {
+  "Acciones": { "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet (Google)", "AMZN": "Amazon", "META": "Meta Platforms", "TSLA": "Tesla", "JPM": "JPMorgan Chase", "KO": "Coca-Cola", "JNJ": "Johnson & Johnson", "SAN.MC": "Banco Santander", "ITX.MC": "Inditex", "MELI": "MercadoLibre", "YPF": "YPF" },
+  "ETF": { "SPY": "S&P 500 (SPDR)", "QQQ": "Nasdaq 100 (Invesco)", "VT": "Mercado mundial (Vanguard)", "VWO": "Emergentes (Vanguard)", "AGG": "Bonos EE. UU. (iShares)", "GLD": "Oro físico (SPDR)", "VNQ": "Inmobiliario EE. UU." },
+  "Materias primas": { "GC=F": "Oro", "SI=F": "Plata", "HG=F": "Cobre", "PL=F": "Platino", "CL=F": "Petróleo WTI", "BZ=F": "Petróleo Brent", "NG=F": "Gas natural", "ZC=F": "Maíz", "ZW=F": "Trigo", "ZS=F": "Soja", "KC=F": "Café", "SB=F": "Azúcar" },
+  "Criptomonedas": { "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum", "SOL-USD": "Solana" },
+  "Índices": { "^GSPC": "S&P 500", "^IXIC": "Nasdaq Composite", "^DJI": "Dow Jones", "^IBEX": "IBEX 35", "^MERV": "Merval", "^STOXX50E": "Euro Stoxx 50" },
+  "Divisas": { "EURUSD=X": "Euro / Dólar", "USDMXN=X": "Dólar / Peso mexicano", "USDARS=X": "Dólar / Peso argentino" },
+};
+const NAMES = Object.assign({}, ...Object.values(CATALOG));
+const CLASSES = Object.keys(CATALOG);
+function assetClass(t) {
+  for (const c of CLASSES) if (t in CATALOG[c]) return c;
+  if (t.endsWith("=F")) return "Materias primas";
+  if (t.endsWith("-USD")) return "Criptomonedas";
+  if (t.startsWith("^")) return "Índices";
+  if (t.endsWith("=X")) return "Divisas";
+  return "Acciones";
+}
+const nameOf = t => NAMES[t] || t;
+
+// ======================================================= precios simulados
+// Paseo aleatorio geométrico con un factor de mercado común; reproducible por símbolo.
+const PARAMS = { "Acciones": [0.10, 0.30, 150], "ETF": [0.08, 0.17, 300], "Materias primas": [0.04, 0.28, 80], "Criptomonedas": [0.25, 0.70, 20000], "Índices": [0.08, 0.18, 5000], "Divisas": [0.0, 0.08, 1.1] };
+function hash(s) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function normals(r, n) { const out = new Float64Array(n); for (let i = 0; i < n; i++) { const u = Math.max(r(), 1e-12), v = r(); out[i] = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); } return out; }
+const DATES = (() => { const out = []; const d = new Date(); d.setHours(0, 0, 0, 0); while (out.length < 1260) { const w = d.getDay(); if (w !== 0 && w !== 6) out.push(new Date(d)); d.setDate(d.getDate() - 1); } return out.reverse(); })();
+const MARKET = normals(rng(12345), DATES.length);
+const cache = new Map();
+function fullSeries(t) {
+  if (cache.has(t)) return cache.get(t);
+  const cls = assetClass(t); const [mu, sigma, p0] = PARAMS[cls];
+  const r = rng(hash(t)); const own = normals(r, DATES.length);
+  const beta = ["Acciones", "ETF", "Índices"].includes(cls) ? 0.6 : 0.2;
+  const dt = 1 / 252; let p = p0 * (0.3 + 1.4 * r()); const out = new Array(DATES.length);
+  for (let i = 0; i < DATES.length; i++) {
+    const z = beta * MARKET[i] + Math.sqrt(1 - beta * beta) * own[i];
+    p *= Math.exp((mu - 0.5 * sigma * sigma) * dt + sigma * Math.sqrt(dt) * z); out[i] = p;
+  }
+  cache.set(t, out); return out;
+}
+const PERIODS = { "3m": ["3 meses", 63], "6m": ["6 meses", 126], "1y": ["1 año", 252], "2y": ["2 años", 504], "5y": ["5 años", 1260] };
+function series(t, period) { const n = PERIODS[period][1]; return { dates: DATES.slice(-n), close: fullSeries(t).slice(-n) }; }
+
+// ======================================================= indicadores y métricas
+function sma(a, w) { const o = new Array(a.length).fill(null); let s = 0; for (let i = 0; i < a.length; i++) { s += a[i]; if (i >= w) s -= a[i - w]; if (i >= w - 1) o[i] = s / w; } return o; }
+function ema(a, span) { const k = 2 / (span + 1); const o = new Array(a.length); o[0] = a[0]; for (let i = 1; i < a.length; i++) o[i] = k * a[i] + (1 - k) * o[i - 1]; return o; }
+function rsi(a, p = 14) {
+  const o = new Array(a.length).fill(null); if (a.length <= p) return o; const al = 1 / p; let g = 0, l = 0;
+  for (let i = 1; i < a.length; i++) {
+    const d = a[i] - a[i - 1], gi = Math.max(d, 0), li = Math.max(-d, 0);
+    if (i === 1) { g = gi; l = li; } else { g = (1 - al) * g + al * gi; l = (1 - al) * l + al * li; }
+    if (i >= p) o[i] = g === 0 && l === 0 ? 50 : l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  return o;
+}
+function macd(a) { const f = ema(a, 12), s = ema(a, 26); const line = a.map((_, i) => f[i] - s[i]); const sig = ema(line, 9); return { line, sig, hist: line.map((v, i) => v - sig[i]) }; }
+function bollinger(a, w = 20, k = 2) { const m = sma(a, w); const up = [], lo = []; for (let i = 0; i < a.length; i++) { if (m[i] === null) { up.push(null); lo.push(null); continue; } let s = 0; for (let j = i - w + 1; j <= i; j++) s += (a[j] - m[i]) ** 2; const sd = Math.sqrt(s / (w - 1)); up.push(m[i] + k * sd); lo.push(m[i] - k * sd); } return { up, lo }; }
+function returns(a) { const r = []; for (let i = 1; i < a.length; i++) r.push(a[i] / a[i - 1] - 1); return r; }
+function mean(a) { return a.reduce((x, y) => x + y, 0) / a.length; }
+function std(a) { const m = mean(a); return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / (a.length - 1)); }
+function drawdown(a) { let mx = -Infinity; return a.map(v => { mx = Math.max(mx, v); return v / mx - 1; }); }
+function summary(s, rf = 0) {
+  const c = s.close, r = returns(c), sd = std(r);
+  const years = (s.dates.at(-1) - s.dates[0]) / (365.25 * 864e5);
+  return { total: c.at(-1) / c[0] - 1, cagr: Math.pow(c.at(-1) / c[0], 1 / years) - 1, vol: sd * Math.sqrt(252), sharpe: sd ? (mean(r) - rf / 252) / sd * Math.sqrt(252) : NaN, mdd: Math.min(...drawdown(c)) };
+}
+function corr(a, b) { const ma = mean(a), mb = mean(b); let n = 0, da = 0, db = 0; for (let i = 0; i < a.length; i++) { n += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; } return n / Math.sqrt(da * db); }
+function outlook(c) {
+  const reasons = []; let pts = 0, w = 0; const p = c.at(-1);
+  const s50 = c.length >= 50 ? sma(c, 50).at(-1) : null, s200 = c.length >= 200 ? sma(c, 200).at(-1) : null;
+  if (s50 !== null) { w++; if (p > s50) { pts++; reasons.push(`El precio está por encima de su media de 50 sesiones (${num(s50)}): tendencia de corto plazo al alza.`); } else { pts--; reasons.push(`El precio está por debajo de su media de 50 sesiones (${num(s50)}): tendencia de corto plazo a la baja.`); } }
+  if (s200 !== null) {
+    w++; if (p > s200) { pts++; reasons.push(`Por encima de la media de 200 sesiones (${num(s200)}): tendencia de largo plazo alcista.`); } else { pts--; reasons.push(`Por debajo de la media de 200 sesiones (${num(s200)}): tendencia de largo plazo bajista.`); }
+    if (s50 !== null) { w += 0.5; if (s50 > s200) { pts += 0.5; reasons.push("La media de 50 está sobre la de 200 (configuración de cruce dorado)."); } else { pts -= 0.5; reasons.push("La media de 50 está bajo la de 200 (configuración de cruce de la muerte)."); } }
+  }
+  if (c.length >= 35) { w++; if (macd(c).hist.at(-1) > 0) { pts++; reasons.push("MACD por encima de su señal: el impulso es positivo."); } else { pts--; reasons.push("MACD por debajo de su señal: el impulso es negativo."); } }
+  const r = rsi(c).at(-1);
+  if (r !== null) { w++; if (r >= 70) { pts--; reasons.push(`RSI en ${r.toFixed(0)}: zona de sobrecompra, posible corrección.`); } else if (r <= 30) { pts++; reasons.push(`RSI en ${r.toFixed(0)}: zona de sobreventa, posible rebote.`); } else reasons.push(`RSI en ${r.toFixed(0)}: zona neutral.`); }
+  if (!w) return { score: 0, verdict: "Datos insuficientes", reasons: ["Se necesitan más sesiones de historial."] };
+  const score = Math.round(100 * pts / w);
+  const verdict = score >= 50 ? "Alcista" : score >= 15 ? "Moderadamente alcista" : score > -15 ? "Neutral" : score > -50 ? "Moderadamente bajista" : "Bajista";
+  return { score, verdict, reasons };
+}
+function dca(s, monthly) {
+  let units = 0, inv = 0, lastM = -1; const valor = [], aportado = [];
+  s.close.forEach((p, i) => { const m = s.dates[i].getFullYear() * 12 + s.dates[i].getMonth(); if (m !== lastM) { units += monthly / p; inv += monthly; lastM = m; } valor.push(units * p); aportado.push(inv); });
+  return { valor, aportado, invested: inv, final: valor.at(-1) };
+}
+
+// ======================================================= formato
+const nf2 = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf4 = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 4 });
+function num(x) { if (x == null || !isFinite(x)) return "—"; return Math.abs(x) < 10 ? nf4.format(x) : nf2.format(x); }
+function money(x) { return x == null || !isFinite(x) ? "—" : nf2.format(x); }
+function pct(x, signed) { if (x == null || !isFinite(x)) return "—"; const s = (x * 100).toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " %"; return signed && x > 0 ? "+" + s : s; }
+function fix2(x) { return isFinite(x) ? (Math.abs(x) < 0.005 ? 0 : x).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"; }
+function cls(x) { return x > 0 ? "up" : x < 0 ? "down" : ""; }
+const fmtDate = d => d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7", "--s8"];
+function verdictColor(score) { return score >= 15 ? "var(--up)" : score <= -15 ? "var(--down)" : "var(--ink-3)"; }
+function scoreBar(score) {
+  const left = score >= 0 ? 50 : 50 + score / 2, width = Math.abs(score) / 2;
+  return `<span class="score"><span class="track"><b></b><i style="left:${left}%;width:${width}%;background:${verdictColor(score)}"></i></span><span class="n" style="font-family:var(--f-mono);font-size:12px;min-width:30px">${score > 0 ? "+" : ""}${score}</span></span>`;
+}
+
+// ======================================================= gráfico de líneas SVG con tooltip
+// series: [{name, data, color, width?, dash?, kind?: 'line'|'area'|'bars'}]
+function lineChart(el, dates, ser, opt = {}) {
+  const W = Math.max(el.clientWidth || 1000, 280), H = opt.height || 320, L = W < 500 ? 52 : 64, R = 12, T = 10, B = opt.hideX ? 8 : 26;
+  const vals = ser.flatMap(s => s.data).filter(v => v != null && isFinite(v));
+  let lo = opt.min ?? Math.min(...vals), hi = opt.max ?? Math.max(...vals);
+  if (opt.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = opt.min != null ? 0 : (hi - lo) * 0.05; lo -= opt.min != null ? 0 : pad; hi += opt.max != null ? 0 : pad;
+  const n = dates.length, x = i => L + (W - L - R) * (n === 1 ? 0 : i / (n - 1)), y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+  const ticks = niceTicks(lo, hi, opt.ticks || 5);
+  const fmtY = opt.fmtY || (v => num(v));
+  let g = "";
+  for (const t of ticks) g += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)" stroke-width="1"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${esc(fmtY(t))}</text>`;
+  for (const h of opt.hlines || []) g += `<line x1="${L}" x2="${W - R}" y1="${y(h)}" y2="${y(h)}" stroke="var(--ink-3)" stroke-dasharray="4 4" stroke-width="1"/>`;
+  if (!opt.hideX) { const k = Math.min(6, n); for (let j = 0; j < k; j++) { const i = Math.round(j * (n - 1) / Math.max(k - 1, 1)); g += `<text x="${x(i)}" y="${H - 6}" text-anchor="${j === 0 ? "start" : j === k - 1 ? "end" : "middle"}">${dates[i].toLocaleDateString("es-ES", { month: "short", year: "2-digit" })}</text>`; } }
+  for (const s of ser) {
+    if (s.kind === "bars") {
+      const bw = Math.max((W - L - R) / n - 0.5, 0.6);
+      s.data.forEach((v, i) => { if (v == null) return; const y0 = y(0), y1 = y(v); g += `<rect x="${x(i) - bw / 2}" y="${Math.min(y0, y1)}" width="${bw}" height="${Math.max(Math.abs(y1 - y0), 0.5)}" fill="${v >= 0 ? "var(--up)" : "var(--down)"}" opacity="0.75"/>`; });
+      continue;
+    }
+    let d = "", on = false;
+    s.data.forEach((v, i) => { if (v == null || !isFinite(v)) { on = false; return; } d += (on ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1); on = true; });
+    if (s.kind === "area") { const first = s.data.findIndex(v => v != null); g += `<path d="${d}L${x(n - 1)} ${y(Math.max(lo, Math.min(0, hi)))}L${x(first)} ${y(Math.max(lo, Math.min(0, hi)))}Z" fill="${s.color}" opacity="0.18"/>`; }
+    g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" ${s.dash ? 'stroke-dasharray="6 4"' : ""} stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+  }
+  const legend = opt.legend === false ? "" : `<div class="legend">${ser.filter(s => s.kind !== "bars" || s.name).map(s => `<span><i class="${s.dash ? "dash" : ""}" style="background:${s.kind === "bars" ? "var(--up)" : s.color};color:${s.color}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+  el.innerHTML = `${legend}<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.label || "Gráfico")}">${g}<line class="cross" y1="${T}" y2="${H - B}" stroke="var(--ink-3)" stroke-width="1" visibility="hidden"/><rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" class="hit"/></svg><div class="tip" hidden></div></div>`;
+  const svg = el.querySelector("svg"), tip = el.querySelector(".tip"), cross = el.querySelector(".cross"), box = el.querySelector(".chart");
+  const fmtT = opt.fmtTip || fmtY;
+  function move(ev) {
+    const r = svg.getBoundingClientRect(); const px = (ev.clientX - r.left) / r.width * W;
+    const i = Math.max(0, Math.min(n - 1, Math.round((px - L) / (W - L - R) * (n - 1))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+    tip.innerHTML = `<div class="t">${fmtDate(dates[i])}</div>` + ser.map(s => s.data[i] == null ? "" : `<div class="r"><i style="background:${s.kind === "bars" ? (s.data[i] >= 0 ? "var(--up)" : "var(--down)") : s.color}"></i>${esc(s.name)}: ${esc(fmtT(s.data[i]))}</div>`).join("");
+    tip.hidden = false; const bx = box.getBoundingClientRect(); const left = ev.clientX - bx.left;
+    tip.style.top = "8px"; tip.style.left = (left > bx.width / 2 ? left - tip.offsetWidth - 14 : left + 14) + "px";
+  }
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("pointerleave", () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); });
+}
+function niceTicks(lo, hi, count) {
+  const span = hi - lo, step0 = span / count, mag = Math.pow(10, Math.floor(Math.log10(step0))), err = step0 / mag;
+  const step = (err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1) * mag; const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10)); return out;
+}
+function hbars(items, fmt = v => pct(v, true), simple = false) {
+  const mx = Math.max(...items.map(i => Math.abs(i.v)), 1e-9);
+  return `<div class="hbars">${items.map(i => {
+    if (simple) return `<div class="hbar simple"><span class="name" title="${esc(i.name)}">${esc(i.name)}</span><span class="bar"><i style="left:0;width:${100 * i.v / mx}%;background:${i.color || "var(--accent)"}"></i></span><span class="val">${fmt(i.v)}</span></div>`;
+    const w = 50 * Math.abs(i.v) / mx, left = i.v >= 0 ? 50 : 50 - w;
+    return `<div class="hbar"><span class="name" title="${esc(i.name)}">${esc(i.name)}</span><span class="bar"><b></b><i style="left:${left}%;width:${w}%;background:${i.v >= 0 ? "var(--up)" : "var(--down)"}"></i></span><span class="val">${fmt(i.v)}</span></div>`;
+  }).join("")}</div>`;
+}
+function periodSelect(id, value) { return `<div class="field"><label for="${id}">Periodo</label><select id="${id}">${Object.entries(PERIODS).map(([k, [l]]) => `<option value="${k}" ${k === value ? "selected" : ""}>${l}</option>`).join("")}</select></div>`; }
+function assetSelect(id, value) { return `<div class="field" style="flex:1;min-width:220px"><label for="${id}">Activo</label><select id="${id}">${CLASSES.map(c => `<optgroup label="${c}">${Object.entries(CATALOG[c]).map(([t, n]) => `<option value="${esc(t)}" ${t === value ? "selected" : ""}>${esc(n)} (${esc(t)})</option>`).join("")}</optgroup>`).join("")}</select></div>`; }
+
+// ======================================================= estado
+const state = {
+  market: { classes: ["Acciones", "Materias primas", "Criptomonedas", "Índices"], sort: "score", dir: -1 },
+  asset: { t: "AAPL", period: "2y", rf: 4, bb: false },
+  cmp: { list: ["SPY", "GC=F", "BTC-USD", "CL=F"], period: "1y" },
+  sim: { t: "SPY", period: "5y", monthly: 200 },
+  portfolio: null, portfolioIsExample: true, targets: null, saveMsg: "",
+};
+try { const s = JSON.parse(localStorage.getItem("ui") || "null"); if (s) { Object.assign(state.market, s.market || {}); Object.assign(state.asset, s.asset || {}); Object.assign(state.cmp, s.cmp || {}); Object.assign(state.sim, s.sim || {}); } } catch (e) { }
+function remember() { try { localStorage.setItem("ui", JSON.stringify({ market: state.market, asset: state.asset, cmp: state.cmp, sim: state.sim })); } catch (e) { } }
+function examplePortfolio() {
+  const yearAgo = t => fullSeries(t).at(-252);
+  return [["SPY", 10], ["AAPL", 15], ["GC=F", 2], ["BTC-USD", 0.05], ["AGG", 20]].map(([t, q]) => ({ ticker: t, cantidad: q, precio_medio: +yearAgo(t).toFixed(2) }));
+}
+state.portfolio = examplePortfolio();
+
+// Guardado de la cartera: base de datos privada del usuario si está disponible; si no, este navegador.
+let db = null, uid = null;
+const portfolioDocPath = () => `data/users/${uid}/cartera`;
+async function initStorage() {
+  try {
+    const u = await window.claude?.use?.("user"); const d = await window.claude?.use?.("db");
+    if (u && d) { uid = await u.id(); if (uid) db = d; }
+  } catch (e) { db = null; }
+  let saved = null;
+  if (db) { try { const snap = await db.doc(portfolioDocPath()).get(); if (snap.exists) saved = snap.data(); } catch (e) { db = null; } }
+  if (!saved) { try { saved = JSON.parse(localStorage.getItem("cartera") || "null"); } catch (e) { } }
+  if (saved && Array.isArray(saved.positions)) { state.portfolio = saved.positions; state.portfolioIsExample = false; if (saved.targets) state.targets = saved.targets; if (current() === "cartera") render(); }
+}
+async function savePortfolio() {
+  const payload = { positions: cleanPositions(state.portfolio), targets: state.targets, actualizado: new Date().toISOString() };
+  let where = "este navegador";
+  try { localStorage.setItem("cartera", JSON.stringify(payload)); } catch (e) { where = null; }
+  if (db) { try { await db.doc(portfolioDocPath()).set(payload); where = "tu cuenta (privado, solo tú lo ves)"; } catch (e) { } }
+  state.portfolioIsExample = false;
+  state.saveMsg = where ? `Cartera guardada en ${where}.` : "No se pudo guardar: tu navegador bloquea el almacenamiento.";
+  render();
+}
+function cleanPositions(ps) { return ps.map(p => ({ ticker: String(p.ticker || "").trim().toUpperCase(), cantidad: +p.cantidad, precio_medio: +p.precio_medio })).filter(p => p.ticker && p.cantidad > 0 && p.precio_medio >= 0 && isFinite(p.cantidad) && isFinite(p.precio_medio)); }
+
+// ======================================================= páginas
+const app = document.getElementById("app");
+const PAGES = { mercado: pageMarket, activo: pageAsset, comparar: pageCompare, cartera: pagePortfolio, simulador: pageSim, guia: pageGuide };
+const current = () => { const h = location.hash.slice(1); return h in PAGES ? h : "mercado"; };
+function render() {
+  const p = current();
+  document.querySelectorAll("#tabs a").forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === "#" + p ? "page" : "false"));
+  PAGES[p](); remember();
+}
+window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
+
+function pageMarket() {
+  const st = state.market;
+  const rows = st.classes.flatMap(c => Object.keys(CATALOG[c])).map(t => {
+    const s = series(t, "1y"), c = s.close, o = outlook(c);
+    return { t, name: nameOf(t), cls: assetClass(t), price: c.at(-1), d1: c.at(-1) / c.at(-2) - 1, m1: c.at(-1) / c.at(-22) - 1, y1: c.at(-1) / c[0] - 1, vol: std(returns(c)) * Math.sqrt(252), score: o.score, verdict: o.verdict };
+  });
+  rows.sort((a, b) => { const va = a[st.sort], vb = b[st.sort]; return (typeof va === "string" ? va.localeCompare(vb) : va - vb) * st.dir; });
+  const cols = [["name", "Activo"], ["cls", "Clase"], ["price", "Precio", 1], ["d1", "1 día", 1], ["m1", "1 mes", 1], ["y1", "1 año", 1], ["vol", "Volatilidad", 1], ["score", "Lectura técnica"]];
+  const ranked = [...rows].sort((a, b) => b.y1 - a.y1); const show = ranked.length > 10 ? [...ranked.slice(0, 5), ...ranked.slice(-5)] : ranked;
+  app.innerHTML = `
+  <h1>Panorama de mercado</h1>
+  <p class="lede">Un vistazo a acciones, materias primas, criptomonedas e índices. La lectura técnica combina medias móviles, MACD y RSI en una puntuación de −100 a +100. Pulsa una fila para analizar el activo.</p>
+  <div class="stack">
+    <div class="chips" role="group" aria-label="Clases de activo">${CLASSES.map(c => `<button class="chip" data-c="${c}" aria-pressed="${st.classes.includes(c)}">${c}</button>`).join("")}</div>
+    <div class="panel tbl-wrap">${rows.length ? `<table><thead><tr>${cols.map(([k, l, n]) => `<th class="sortable ${n ? "n" : ""}" data-k="${k}">${l}${st.sort === k ? (st.dir > 0 ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead><tbody>
+      ${rows.map(r => `<tr data-t="${esc(r.t)}" style="cursor:pointer"><td>${esc(r.name)} <span class="sym">${esc(r.t)}</span></td><td>${r.cls}</td><td class="n">${num(r.price)}</td><td class="n ${cls(r.d1)}">${pct(r.d1, true)}</td><td class="n ${cls(r.m1)}">${pct(r.m1, true)}</td><td class="n ${cls(r.y1)}">${pct(r.y1, true)}</td><td class="n">${pct(r.vol)}</td><td>${scoreBar(r.score)} <span class="muted">${r.verdict}</span></td></tr>`).join("")}
+    </tbody></table>` : `<p class="muted">Elige al menos una clase de activo.</p>`}</div>
+    ${rows.length ? `<div class="panel"><h2>Mejores y peores del último año</h2>${hbars(show.map(r => ({ name: r.name, v: r.y1 })))}</div>` : ""}
+  </div>`;
+  app.querySelectorAll(".chip").forEach(b => b.onclick = () => { const c = b.dataset.c; st.classes = st.classes.includes(c) ? st.classes.filter(x => x !== c) : [...st.classes, c]; render(); });
+  app.querySelectorAll("th.sortable").forEach(th => th.onclick = () => { const k = th.dataset.k; if (st.sort === k) st.dir *= -1; else { st.sort = k; st.dir = ["name", "cls"].includes(k) ? 1 : -1; } render(); });
+  app.querySelectorAll("tr[data-t]").forEach(tr => tr.onclick = () => { state.asset.t = tr.dataset.t; location.hash = "activo"; });
+}
+
+function pageAsset() {
+  const st = state.asset; const s = series(st.t, st.period), c = s.close, m = summary(s, st.rf / 100), o = outlook(c);
+  app.innerHTML = `
+  <h1>${esc(nameOf(st.t))} <span class="sym" style="font-size:16px">${esc(st.t)} · ${assetClass(st.t)}</span></h1>
+  <p class="lede">Precio con sus medias móviles, indicadores de impulso y métricas de riesgo del periodo elegido.</p>
+  <div class="stack">
+    <div class="controls">${assetSelect("a-t", st.t)}${periodSelect("a-p", st.period)}
+      <div class="field"><label for="a-rf">Tasa sin riesgo anual (%)</label><input id="a-rf" type="number" min="0" max="20" step="0.25" value="${st.rf}" style="width:120px"></div>
+      <label style="display:flex;gap:6px;align-items:center;padding-bottom:8px"><input id="a-bb" type="checkbox" ${st.bb ? "checked" : ""}> Bandas de Bollinger</label></div>
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Último precio</div><div class="v">${num(c.at(-1))}</div><div class="d ${cls(c.at(-1) / c.at(-2) - 1)}">${pct(c.at(-1) / c.at(-2) - 1, true)} hoy</div></div>
+      <div class="kpi"><div class="lbl">Rentabilidad</div><div class="v ${cls(m.total)}">${pct(m.total, true)}</div><div class="d muted">en ${PERIODS[st.period][0]}</div></div>
+      <div class="kpi"><div class="lbl">Anual (CAGR)</div><div class="v ${cls(m.cagr)}">${pct(m.cagr, true)}</div></div>
+      <div class="kpi"><div class="lbl">Volatilidad</div><div class="v">${pct(m.vol)}</div><div class="d muted">anual</div></div>
+      <div class="kpi"><div class="lbl">Sharpe</div><div class="v">${fix2(m.sharpe)}</div></div>
+      <div class="kpi"><div class="lbl">Máxima caída</div><div class="v down">${pct(m.mdd)}</div></div>
+    </div>
+    <div class="panel"><h2>Precio</h2><div id="c-price"></div></div>
+    <div class="grid2">
+      <div class="panel"><h2>RSI (14)</h2><p class="muted" style="margin-top:-6px">Por encima de 70: sobrecompra. Por debajo de 30: sobreventa.</p><div id="c-rsi"></div></div>
+      <div class="panel"><h2>MACD</h2><p class="muted" style="margin-top:-6px">Barras verdes: el impulso sube. Rojas: el impulso baja.</p><div id="c-macd"></div></div>
+    </div>
+    <div class="grid2">
+      <div class="panel"><div class="verdict"><h2 style="margin:0">Lectura técnica</h2><span class="pill" style="color:${verdictColor(o.score)}">${o.verdict} · ${o.score > 0 ? "+" : ""}${o.score}</span></div>
+        <ul class="reasons">${o.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+        <p class="muted">Basada solo en el precio pasado. No predice el futuro ni tiene en cuenta noticias ni resultados de la empresa.</p></div>
+      <div class="panel"><h2>Caídas desde máximos</h2><div id="c-dd"></div></div>
+    </div>
+  </div>`;
+  const ser = [{ name: "Precio", data: c, color: css("--s1") }, { name: "Media 50", data: sma(c, 50), color: css("--s2"), width: 1.5 }, { name: "Media 200", data: sma(c, 200), color: css("--s7"), width: 1.5 }];
+  if (st.bb) { const b = bollinger(c); ser.push({ name: "Bollinger superior", data: b.up, color: css("--ink-3"), width: 1, dash: true }, { name: "Bollinger inferior", data: b.lo, color: css("--ink-3"), width: 1, dash: true }); }
+  lineChart(document.getElementById("c-price"), s.dates, ser, { height: 340, label: "Precio y medias móviles" });
+  lineChart(document.getElementById("c-rsi"), s.dates, [{ name: "RSI", data: rsi(c), color: css("--s3") }], { height: 200, min: 0, max: 100, hlines: [30, 70], legend: false, fmtY: v => v.toFixed(0), label: "RSI" });
+  const md = macd(c);
+  lineChart(document.getElementById("c-macd"), s.dates, [{ name: "Histograma", data: md.hist, kind: "bars" }, { name: "MACD", data: md.line, color: css("--s1"), width: 1.5 }, { name: "Señal", data: md.sig, color: css("--s2"), width: 1.5 }], { height: 200, zero: true, label: "MACD" });
+  lineChart(document.getElementById("c-dd"), s.dates, [{ name: "Caída", data: drawdown(c), color: css("--down"), kind: "area", width: 1.5 }], { height: 220, max: 0, legend: false, fmtY: v => pct(v), label: "Caídas desde máximos" });
+  bind("a-t", "change", v => st.t = v); bind("a-p", "change", v => st.period = v); bind("a-rf", "change", v => st.rf = Math.max(0, +v || 0));
+  document.getElementById("a-bb").onchange = e => { st.bb = e.target.checked; render(); };
+}
+function bind(id, ev, fn) { document.getElementById(id).addEventListener(ev, e => { fn(e.target.value); render(); }); }
+
+function pageCompare() {
+  const st = state.cmp; const list = st.list.filter(t => t in NAMES).slice(0, 8);
+  const color = t => css(SERIES[list.indexOf(t)]);
+  const data = list.map(t => ({ t, s: series(t, st.period) }));
+  app.innerHTML = `
+  <h1>Comparar activos</h1>
+  <p class="lede">Elige hasta 8 activos para ver cómo se han comportado y cuánto se mueven juntos. Combinar activos que no se mueven a la vez reduce el riesgo de una cartera.</p>
+  <div class="stack">
+    <div class="controls">${periodSelect("c-p", st.period)}<div class="field" style="flex:1;min-width:220px"><label for="c-add">Añadir activo</label><select id="c-add"><option value="">Elige un activo…</option>${CLASSES.map(c => `<optgroup label="${c}">${Object.entries(CATALOG[c]).filter(([t]) => !list.includes(t)).map(([t, n]) => `<option value="${esc(t)}">${esc(n)} (${esc(t)})</option>`).join("")}</optgroup>`).join("")}</select></div></div>
+    <div class="chips">${list.map(t => `<button class="chip" aria-pressed="true" data-t="${esc(t)}" title="Quitar"><span class="dot" style="background:${color(t)}"></span>${esc(nameOf(t))} ✕</button>`).join("")}${list.length >= 8 ? `<span class="muted">Máximo 8 activos.</span>` : ""}</div>
+    ${list.length < 2 ? `<div class="panel"><p class="muted">Elige al menos dos activos.</p></div>` : `
+    <div class="panel"><h2>Evolución (base 100)</h2><p class="muted" style="margin-top:-6px">Todos empiezan en 100 para poder compararlos aunque tengan precios muy distintos.</p><div id="c-norm"></div></div>
+    <div class="panel tbl-wrap"><h2>Rentabilidad y riesgo</h2><table><thead><tr><th>Activo</th><th class="n">Rentabilidad</th><th class="n">Anual</th><th class="n">Volatilidad</th><th class="n">Sharpe</th><th class="n">Máx. caída</th></tr></thead><tbody>
+      ${data.map(({ t, s }) => { const m = summary(s); return `<tr><td><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color(t)};margin-right:6px"></span>${esc(nameOf(t))} <span class="sym">${esc(t)}</span></td><td class="n ${cls(m.total)}">${pct(m.total, true)}</td><td class="n ${cls(m.cagr)}">${pct(m.cagr, true)}</td><td class="n">${pct(m.vol)}</td><td class="n">${fix2(m.sharpe)}</td><td class="n down">${pct(m.mdd)}</td></tr>`; }).join("")}
+    </tbody></table></div>
+    <div class="panel"><h2>Correlación</h2><p class="muted" style="margin-top:-6px">+1: se mueven igual · 0: independientes · negativo: suelen moverse en sentido contrario.</p><div class="tbl-wrap"><div class="heat" id="c-heat" style="grid-template-columns:minmax(90px,150px) repeat(${list.length}, minmax(52px,1fr));min-width:${150 + 56 * list.length}px"></div></div></div>`}
+  </div>`;
+  app.querySelectorAll(".chip[data-t]").forEach(b => b.onclick = () => { st.list = st.list.filter(t => t !== b.dataset.t); render(); });
+  bind("c-p", "change", v => st.period = v);
+  document.getElementById("c-add").onchange = e => { if (e.target.value && st.list.length < 8) { st.list = [...list, e.target.value]; render(); } };
+  if (list.length < 2) return;
+  lineChart(document.getElementById("c-norm"), data[0].s.dates, data.map(({ t, s }) => ({ name: nameOf(t), data: s.close.map(v => 100 * v / s.close[0]), color: color(t) })), { height: 340, fmtY: v => v.toFixed(0), fmtTip: v => v.toFixed(1), label: "Evolución base 100" });
+  const rets = data.map(d => returns(d.s.close)); const heat = document.getElementById("c-heat");
+  let h = `<div class="h"></div>` + list.map(t => `<div class="h hc" title="${esc(nameOf(t))}">${esc(t)}</div>`).join("");
+  list.forEach((t, i) => { h += `<div class="h" title="${esc(nameOf(t))}">${esc(nameOf(t))}</div>`; list.forEach((_, j) => { const v = i === j ? 1 : corr(rets[i], rets[j]); const k = Math.round(Math.abs(v) * 85); const bg = `color-mix(in oklab, var(${v >= 0 ? "--heat-pos" : "--heat-neg"}) ${k}%, var(--heat-mid))`; h += `<div style="background:${bg};color:${Math.abs(v) > 0.6 ? "#fff" : "var(--ink)"}" title="${esc(nameOf(t))} / ${esc(nameOf(list[j]))}: ${v.toFixed(2)}">${v.toFixed(2)}</div>`; }); });
+  heat.innerHTML = h;
+}
+
+function pagePortfolio() {
+  const ps = state.portfolio; const valid = cleanPositions(ps);
+  const valued = valid.map(p => { const price = fullSeries(p.ticker).at(-1); const coste = p.cantidad * p.precio_medio, valor = p.cantidad * price; return { ...p, clase: assetClass(p.ticker), price, coste, valor, gan: valor - coste, ganp: coste ? (valor - coste) / coste : NaN }; });
+  const total = valued.reduce((a, r) => a + r.valor, 0), cost = valued.reduce((a, r) => a + r.coste, 0);
+  valued.forEach(r => r.peso = total ? r.valor / total : 0);
+  const byClass = {}; valued.forEach(r => byClass[r.clase] = (byClass[r.clase] || 0) + r.valor);
+  const classes = [...new Set([...Object.keys(byClass), "Acciones", "ETF", "Materias primas", "Criptomonedas"])].sort();
+  if (!state.targets) { state.targets = {}; classes.forEach(c => state.targets[c] = Math.round(100 * (byClass[c] || 0) / (total || 1))); }
+  classes.forEach(c => { if (!(c in state.targets)) state.targets[c] = 0; });
+  const tsum = classes.reduce((a, c) => a + (+state.targets[c] || 0), 0);
+  const top = valued.reduce((a, r) => r.peso > (a?.peso || 0) ? r : a, null);
+  const hist = DATES.slice(-252), histVal = hist.map((_, i) => valued.reduce((a, r) => a + r.cantidad * fullSeries(r.ticker).at(-252 + i), 0));
+  const known = Object.keys(NAMES);
+  app.innerHTML = `
+  <h1>Mi cartera</h1>
+  <p class="lede">Anota lo que tienes: símbolo, cantidad y precio medio de compra. Verás tus ganancias, cómo está repartido tu dinero y qué ajustar para llegar al reparto que quieres.</p>
+  <div class="stack">
+    <div class="panel">
+      <div class="verdict"><h2 style="margin:0">Posiciones</h2>${state.portfolioIsExample ? `<span class="tag">Ejemplo</span><span class="muted">Cambia las filas por las tuyas y pulsa Guardar.</span>` : ""}</div>
+      <div class="tbl-wrap"><table class="edit"><thead><tr><th>Símbolo</th><th>Cantidad</th><th>Precio medio</th><th></th></tr></thead><tbody>
+        ${ps.map((p, i) => `<tr><td><input type="text" id="p-t-${i}" list="tickers" value="${esc(p.ticker)}" data-i="${i}" data-f="ticker" aria-label="Símbolo"></td><td><input type="number" id="p-q-${i}" min="0" step="any" value="${esc(p.cantidad)}" data-i="${i}" data-f="cantidad" aria-label="Cantidad"></td><td><input type="number" id="p-p-${i}" min="0" step="any" value="${esc(p.precio_medio)}" data-i="${i}" data-f="precio_medio" aria-label="Precio medio"></td><td><button class="ghost" data-del="${i}" aria-label="Eliminar fila">✕</button></td></tr>`).join("")}
+      </tbody></table></div>
+      <datalist id="tickers">${known.map(t => `<option value="${esc(t)}">${esc(nameOf(t))}</option>`).join("")}</datalist>
+      <div class="row-actions" style="margin-top:12px"><button id="p-add">+ Añadir fila</button><button class="primary" id="p-save">Guardar cartera</button><button id="p-ex">Cargar ejemplo</button><span class="muted" id="p-msg">${esc(state.saveMsg)}</span></div>
+    </div>
+    ${valued.length ? `
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Valor actual</div><div class="v">${money(total)}</div></div>
+      <div class="kpi"><div class="lbl">Invertido</div><div class="v">${money(cost)}</div></div>
+      <div class="kpi"><div class="lbl">Ganancia / pérdida</div><div class="v ${cls(total - cost)}">${money(total - cost)}</div><div class="d ${cls(total - cost)}">${pct((total - cost) / cost, true)}</div></div>
+    </div>
+    ${top && top.peso > 0.4 ? `<div class="alert">Concentración alta: <strong>${esc(nameOf(top.ticker))}</strong> pesa el ${pct(top.peso)} de tu cartera. Si cae, te afecta mucho.</div>` : ""}
+    <div class="panel tbl-wrap"><table><thead><tr><th>Activo</th><th>Clase</th><th class="n">Precio actual</th><th class="n">Valor</th><th class="n">Ganancia</th><th class="n">%</th><th class="n">Peso</th></tr></thead><tbody>
+      ${valued.map(r => `<tr><td>${esc(nameOf(r.ticker))} <span class="sym">${esc(r.ticker)}</span></td><td>${r.clase}</td><td class="n">${num(r.price)}</td><td class="n">${money(r.valor)}</td><td class="n ${cls(r.gan)}">${money(r.gan)}</td><td class="n ${cls(r.gan)}">${pct(r.ganp, true)}</td><td class="n">${pct(r.peso)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="grid2">
+      <div class="panel"><h2>Reparto por clase</h2>${hbars(Object.entries(byClass).sort((a, b) => b[1] - a[1]).map(([c, v]) => ({ name: c, v: v / total })), v => pct(v), true)}</div>
+      <div class="panel"><h2>Valor en el último año</h2><p class="muted" style="margin-top:-6px">Con tus posiciones actuales.</p><div id="p-hist"></div></div>
+    </div>
+    <div class="panel"><h2>Rebalanceo</h2><p class="muted" style="margin-top:-6px">Indica qué porcentaje quieres en cada clase. Te decimos cuánto comprar (+) o vender (−).</p>
+      <div class="controls" style="margin-bottom:14px">${classes.map(c => `<div class="field"><label for="tg-${hash(c)}">${c} (%)</label><input type="number" id="tg-${hash(c)}" data-c="${c}" min="0" max="100" step="5" value="${state.targets[c]}" style="width:110px"></div>`).join("")}</div>
+      ${tsum !== 100 ? `<p class="alert">Los objetivos suman ${tsum} %. Deben sumar 100 %.</p>` : `<div class="tbl-wrap"><table><thead><tr><th>Clase</th><th class="n">Ahora</th><th class="n">Objetivo</th><th class="n">Comprar (+) / vender (−)</th></tr></thead><tbody>
+        ${classes.filter(c => byClass[c] || state.targets[c]).map(c => { const cur = (byClass[c] || 0); const adj = state.targets[c] / 100 * total - cur; return `<tr><td>${c}</td><td class="n">${pct(cur / total)}</td><td class="n">${pct(state.targets[c] / 100)}</td><td class="n ${cls(adj)}">${adj > 0 ? "+" : ""}${money(adj)}</td></tr>`; }).join("")}
+      </tbody></table></div>`}
+    </div>` : `<div class="panel"><p class="muted">Tu cartera está vacía. Añade una fila o pulsa «Cargar ejemplo».</p></div>`}
+  </div>`;
+  app.querySelectorAll("input[data-f]").forEach(inp => inp.addEventListener("change", e => { const i = +e.target.dataset.i, f = e.target.dataset.f; ps[i][f] = f === "ticker" ? e.target.value.toUpperCase() : e.target.value; state.saveMsg = ""; render(); }));
+  app.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { ps.splice(+b.dataset.del, 1); render(); });
+  app.querySelectorAll("input[data-c]").forEach(inp => inp.addEventListener("change", e => { state.targets[e.target.dataset.c] = Math.max(0, +e.target.value || 0); render(); }));
+  document.getElementById("p-add").onclick = () => { ps.push({ ticker: "", cantidad: "", precio_medio: "" }); render(); document.getElementById(`p-t-${ps.length - 1}`)?.focus(); };
+  document.getElementById("p-save").onclick = savePortfolio;
+  document.getElementById("p-ex").onclick = () => { state.portfolio = examplePortfolio(); state.portfolioIsExample = true; state.targets = null; state.saveMsg = ""; render(); };
+  if (valued.length) lineChart(document.getElementById("p-hist"), hist, [{ name: "Valor", data: histVal, color: css("--s1") }], { height: 220, legend: false, label: "Valor de la cartera" });
+}
+
+function pageSim() {
+  const st = state.sim; const s = series(st.t, st.period); const d = dca(s, st.monthly);
+  const units = d.invested / s.close[0]; const lump = s.close.map(p => units * p);
+  const lumpFinal = lump.at(-1);
+  app.innerHTML = `
+  <h1>Simulador de aportaciones</h1>
+  <p class="lede">¿Qué habría pasado si hubieras invertido en el pasado? Compara aportar una cantidad fija cada mes (DCA) con invertir el mismo dinero de golpe al principio.</p>
+  <div class="stack">
+    <div class="controls">${assetSelect("s-t", st.t)}${periodSelect("s-p", st.period)}<div class="field"><label for="s-m">Aportación mensual</label><input id="s-m" type="number" min="10" step="10" value="${st.monthly}" style="width:140px"></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Total aportado</div><div class="v">${money(d.invested)}</div><div class="d muted">${Math.round(d.invested / st.monthly)} meses</div></div>
+      <div class="kpi"><div class="lbl">Aportando cada mes</div><div class="v">${money(d.final)}</div><div class="d ${cls(d.final - d.invested)}">${pct(d.final / d.invested - 1, true)}</div></div>
+      <div class="kpi"><div class="lbl">Todo al inicio</div><div class="v">${money(lumpFinal)}</div><div class="d ${cls(lumpFinal - d.invested)}">${pct(lumpFinal / d.invested - 1, true)}</div></div>
+      <div class="kpi"><div class="lbl">Diferencia</div><div class="v ${cls(d.final - lumpFinal)}">${money(d.final - lumpFinal)}</div><div class="d muted">a favor de ${d.final >= lumpFinal ? "aportar cada mes" : "invertir al inicio"}</div></div>
+    </div>
+    <div class="panel"><div id="s-chart"></div></div>
+    <p class="muted">Las rentabilidades pasadas no garantizan las futuras. No incluye comisiones, impuestos ni tipo de cambio.</p>
+  </div>`;
+  lineChart(document.getElementById("s-chart"), s.dates, [{ name: "Aportando cada mes", data: d.valor, color: css("--s1") }, { name: "Todo al inicio", data: lump, color: css("--s2") }, { name: "Dinero aportado", data: d.aportado, color: css("--ink-3"), width: 1.5, dash: true }], { height: 360, label: "Simulación DCA" });
+  bind("s-t", "change", v => st.t = v); bind("s-p", "change", v => st.period = v); bind("s-m", "change", v => st.monthly = Math.max(1, +v || 200));
+}
+
+function pageGuide() {
+  app.innerHTML = `
+  <div class="guide">
+  <h1>Guía rápida</h1>
+  <p class="lede">Qué hace cada sección, cómo se escriben los símbolos y qué significan los términos.</p>
+  <div class="panel">
+    <h2 style="margin-top:0">Secciones</h2>
+    <dl>
+      <dt>Mercado</dt><dd>Precio, variación y lectura técnica de decenas de activos. Ordena por cualquier columna.</dd>
+      <dt>Analizar activo</dt><dd>Gráfico con medias móviles, RSI, MACD, métricas de riesgo y la lectura técnica explicada.</dd>
+      <dt>Comparar</dt><dd>Rentabilidad, riesgo y correlación entre varios activos, para diversificar mejor.</dd>
+      <dt>Mi cartera</dt><dd>Tus posiciones, ganancias, reparto por clase y cuánto comprar o vender para rebalancear.</dd>
+      <dt>Simulador</dt><dd>Aportar cada mes frente a invertir de golpe, con datos del pasado.</dd>
+    </dl>
+    <h2>Símbolos</h2>
+    <div class="tbl-wrap"><table><tbody>
+      <tr><td>Acciones</td><td><code>AAPL</code> <code>KO</code> <code>SAN.MC</code> (Madrid) <code>GGAL.BA</code> (Buenos Aires)</td></tr>
+      <tr><td>Materias primas</td><td><code>GC=F</code> oro · <code>SI=F</code> plata · <code>CL=F</code> petróleo · <code>ZW=F</code> trigo</td></tr>
+      <tr><td>Criptomonedas</td><td><code>BTC-USD</code> <code>ETH-USD</code></td></tr>
+      <tr><td>Índices</td><td><code>^GSPC</code> S&amp;P 500 · <code>^IBEX</code> · <code>^MERV</code></td></tr>
+      <tr><td>Divisas</td><td><code>EURUSD=X</code> <code>USDMXN=X</code></td></tr>
+    </tbody></table></div>
+    <h2>Glosario</h2>
+    <dl>
+      <dt>CAGR</dt><dd>Rentabilidad media anual compuesta del periodo.</dd>
+      <dt>Volatilidad</dt><dd>Cuánto oscila el precio. Más volatilidad significa más riesgo.</dd>
+      <dt>Sharpe</dt><dd>Rentabilidad extra por cada unidad de riesgo. Por encima de 1 suele considerarse bueno.</dd>
+      <dt>Máxima caída</dt><dd>La peor bajada desde un máximo. Indica cuánta pérdida habrías tenido que aguantar.</dd>
+      <dt>Media móvil 50 / 200</dt><dd>Precio medio de las últimas 50 o 200 sesiones. Marca la tendencia.</dd>
+      <dt>RSI</dt><dd>Va de 0 a 100. Por encima de 70, sobrecompra; por debajo de 30, sobreventa.</dd>
+      <dt>MACD</dt><dd>Diferencia entre dos medias exponenciales. Mide el impulso del precio.</dd>
+      <dt>DCA</dt><dd>Invertir una cantidad fija cada cierto tiempo, sin intentar adivinar el mejor momento.</dd>
+    </dl>
+    <h2>Principios básicos</h2>
+    <ul class="reasons">
+      <li>Diversifica entre clases de activo y regiones. Que ninguna posición pese demasiado.</li>
+      <li>Invierte a largo plazo solo dinero que no vayas a necesitar pronto, y ten un fondo de emergencia.</li>
+      <li>Para materias primas suelen usarse ETF (como <code>GLD</code> para el oro) en vez de futuros, que vencen y llevan apalancamiento.</li>
+      <li>Vigila comisiones e impuestos: con los años reducen mucho la rentabilidad.</li>
+    </ul>
+    <p class="muted">Esta herramienta es educativa y no es asesoramiento financiero.</p>
+  </div>
+  </div>`;
+}
+
+// Redibuja al cambiar de tema para que los gráficos tomen los colores correctos.
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+let rsz, lastW = innerWidth; addEventListener("resize", () => { clearTimeout(rsz); rsz = setTimeout(() => { if (innerWidth !== lastW) { lastW = innerWidth; render(); } }, 200); });
+render();
+initStorage();
+</script>
+</body></html>

@@ -53,3 +53,9 @@ tests/               Pruebas (pytest)
 ```
 
 Pruebas: `python -m pytest tests`
+
+## Versión web (sin instalación)
+
+`web/index.html` es una versión de un solo archivo que se abre directamente en el navegador.
+Usa **precios simulados** (no se conecta a Yahoo Finance) y guarda la cartera en el propio navegador.
+Sirve para practicar y explorar las funciones; para datos reales usa la app de Streamlit.
