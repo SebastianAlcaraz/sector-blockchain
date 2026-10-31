@@ -3,6 +3,7 @@
 Ejecutar con:  streamlit run app.py
 """
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -10,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from invest import analysis, portfolio, simulator
+from invest import analysis, news, portfolio, sentiment, simulator
 from invest.catalog import CATALOG, all_assets, asset_class, label
 from invest.data import DemoSource, YahooSource
 from invest.indicators import bollinger, macd, rsi, sma
@@ -68,6 +69,65 @@ def get_closes(tickers: list[str], period: str) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=900, show_spinner="Buscando noticias…")
+def load_news(source_name: str, ticker: str, limit: int = 20) -> list[news.NewsItem]:
+    if source_name == DemoSource.name:
+        return news.demo_news(ticker, all_assets().get(ticker, ticker), limit)
+    return news.yahoo_news(ticker, limit)
+
+
+@st.cache_data(ttl=600, show_spinner="Leyendo la comunidad de eToro…")
+def load_etoro_posts(ticker: str) -> list[news.NewsItem]:
+    return news.EToroClient().instrument_posts(ticker)
+
+
+@st.cache_data(ttl=1800, show_spinner="Analizando el sentimiento…")
+def analyze_texts(analyzer_name: str, texts: tuple[str, ...], context: str) -> tuple[list[sentiment.Scored], str, str]:
+    """Devuelve (puntuaciones, resumen, analizador usado). Si Claude falla, usa el diccionario."""
+    if analyzer_name == sentiment.ClaudeAnalyzer.name:
+        try:
+            scored, summary = sentiment.ClaudeAnalyzer().score_many(list(texts), context)
+            return scored, summary, analyzer_name
+        except Exception as exc:  # sin clave, sin red, límite de uso…
+            scored, _ = sentiment.LexiconAnalyzer().score_many(list(texts))
+            return scored, f"No se pudo usar Claude ({type(exc).__name__}); se usó el diccionario.", sentiment.LexiconAnalyzer.name
+    scored, summary = sentiment.LexiconAnalyzer().score_many(list(texts))
+    return scored, summary, analyzer_name
+
+
+def news_sentiment(ticker: str, limit: int = 20):
+    """Noticias de un activo con su sentimiento. Devuelve (items, puntuaciones, agregado, resumen, analizador)."""
+    try:
+        items = load_news(SOURCE, ticker, limit)
+    except Exception as exc:
+        st.error(f"No se pudieron descargar las noticias: {exc}")
+        return [], [], sentiment.aggregate([]), "", ANALYZER
+    if not items:
+        return [], [], sentiment.aggregate([]), "", ANALYZER
+    scored, summary, used = analyze_texts(ANALYZER, tuple(i.text for i in items), label(ticker))
+    return items, scored, sentiment.aggregate(scored, [i.published for i in items]), summary, used
+
+
+SENT_ICON = {"Positivo": "🟢", "Neutral": "⚪", "Negativo": "🔴"}
+
+
+def sentiment_header(agg: sentiment.Aggregate, what: str = "noticias") -> None:
+    c = st.columns(4)
+    c[0].metric("Sentimiento", agg.label, f"{agg.score:+.2f}", delta_color="normal" if agg.label != "Neutral" else "off")
+    c[1].metric("🟢 Positivas", agg.positive)
+    c[2].metric("⚪ Neutrales", agg.neutral)
+    c[3].metric("🔴 Negativas", agg.negative)
+    st.caption(f"Puntuación de −1 a +1 calculada sobre {agg.total} {what}; las más recientes pesan más.")
+
+
+def render_items(items: list[news.NewsItem], scored: list[sentiment.Scored]) -> None:
+    for item, sc in zip(items, scored):
+        when = item.published.strftime("%d/%m/%Y %H:%M") if item.published else ""
+        title = f"[{item.title}]({item.url})" if item.url else item.title
+        meta = " · ".join(x for x in [item.source, when] if x)
+        st.markdown(f"{SENT_ICON[sc.label]} **{title}**  \n<span style='opacity:.7;font-size:.85em'>{meta} · {sc.label} ({sc.score:+.2f}) — {sc.reason}</span>", unsafe_allow_html=True)
+
+
 def ticker_picker(key: str, default: str = "AAPL") -> str:
     assets = all_assets()
     options = list(assets) + ["Otro…"]
@@ -81,7 +141,7 @@ def ticker_picker(key: str, default: str = "AAPL") -> str:
 st.sidebar.title("📈 Asistente de inversión")
 page = st.sidebar.radio(
     "Sección",
-    ["Panorama de mercado", "Análisis de un activo", "Comparar activos", "Mi cartera", "Simulador de aportaciones", "Guía rápida"],
+    ["Panorama de mercado", "Análisis de un activo", "Noticias y sentimiento", "Comparar activos", "Mi cartera", "Simulador de aportaciones", "Guía rápida"],
 )
 SOURCE = st.sidebar.radio(
     "Fuente de datos",
@@ -89,7 +149,18 @@ SOURCE = st.sidebar.radio(
     help="Yahoo Finance da cotizaciones reales (con ~15 min de retraso). El modo demo usa precios simulados y funciona sin conexión.",
 )
 if SOURCE == DemoSource.name:
-    st.sidebar.info("Estás viendo **precios simulados**. No los uses para decidir.")
+    st.sidebar.info("Estás viendo **precios y noticias simulados**. No los uses para decidir.")
+ANALYZER = st.sidebar.radio(
+    "Análisis de sentimiento",
+    [sentiment.LexiconAnalyzer.name, sentiment.ClaudeAnalyzer.name],
+    help=(
+        "El diccionario es gratis y funciona sin conexión, pero es aproximado. "
+        "La IA (Claude) entiende el contexto y redacta un resumen; necesita la variable ANTHROPIC_API_KEY "
+        "y cada análisis tiene un pequeño coste en tu cuenta de Anthropic (se reutiliza durante 30 min)."
+    ),
+)
+if ANALYZER == sentiment.ClaudeAnalyzer.name and not os.environ.get("ANTHROPIC_API_KEY"):
+    st.sidebar.warning("No encuentro ANTHROPIC_API_KEY. Si falla, se usará el diccionario.")
 st.sidebar.caption(
     "⚠️ Herramienta educativa y de análisis. No es asesoramiento financiero: "
     "invertir conlleva riesgo de pérdida. Contrasta siempre la información."
@@ -219,12 +290,78 @@ def page_asset() -> None:
         for reason in look.reasons:
             st.markdown(f"- {reason}")
         st.caption("Basada solo en el precio pasado. No predice el futuro ni tiene en cuenta noticias o fundamentales.")
+        items, _, agg, _, _ = news_sentiment(ticker, 15)
+        if items:
+            st.markdown(f"**Sentimiento de noticias:** {agg.label} ({agg.score:+.2f}) en {agg.total} titulares. Detalle en *Noticias y sentimiento*.")
     with right:
         st.subheader("Caídas desde máximos")
         dd = analysis.drawdown(close)
         f2 = go.Figure(go.Scatter(x=dd.index, y=dd, fill="tozeroy", line=dict(color=DOWN, width=1.5), name="Caída", hovertemplate="%{y:.1%}<extra></extra>"))
         f2.update_yaxes(tickformat=".0%")
         st.plotly_chart(style_chart(f2, 300), use_container_width=True)
+
+
+def page_news() -> None:
+    st.header("Noticias y sentimiento")
+    st.caption("Titulares recientes clasificados como positivos, neutrales o negativos para el precio del activo.")
+    mode = st.radio("Ver", ["Un activo", "Toda mi cartera"], horizontal=True)
+
+    if mode == "Toda mi cartera":
+        positions = portfolio.load_positions(PORTFOLIO_FILE)
+        if positions.empty:
+            st.info("No tienes una cartera guardada. Ve a *Mi cartera*, añade tus posiciones y pulsa Guardar.")
+            return
+        rows = []
+        for t in positions["ticker"]:
+            items, scored, agg, _, _ = news_sentiment(t, 15)
+            rows.append({"Activo": label(t), "Sentimiento": agg.label, "Puntuación": agg.score, "Positivas": agg.positive, "Neutrales": agg.neutral, "Negativas": agg.negative, "Titular más reciente": items[0].title if items else "—"})
+        table = pd.DataFrame(rows).sort_values("Puntuación")
+        st.dataframe(
+            table,
+            hide_index=True,
+            use_container_width=True,
+            column_config={"Puntuación": st.column_config.ProgressColumn(min_value=-1, max_value=1, format="%+.2f")},
+        )
+        neg = table[table["Sentimiento"] == "Bajista"]
+        if not neg.empty:
+            st.warning("Noticias con tono negativo en: " + ", ".join(neg["Activo"]) + ". Revisa los titulares antes de decidir.")
+        return
+
+    ticker = ticker_picker("news")
+    if not ticker:
+        return
+    items, scored, agg, summary, used = news_sentiment(ticker)
+    if not items:
+        st.info("No hay noticias recientes para este activo.")
+    else:
+        sentiment_header(agg)
+        if summary:
+            st.info(summary)
+        st.caption(f"Analizado con: {used}.")
+        render_items(items, scored)
+
+    st.subheader("Comunidad de eToro")
+    if not news.EToroClient.configured():
+        st.caption(
+            "Para ver qué opina la comunidad de eToro sobre este activo, crea tus claves en el portal de "
+            "desarrolladores de eToro y define las variables de entorno ETORO_API_KEY y ETORO_USER_KEY antes de abrir la app. "
+            "Función experimental."
+        )
+        return
+    try:
+        posts = load_etoro_posts(ticker)
+    except news.EToroError as exc:
+        st.warning(str(exc))
+        return
+    if not posts:
+        st.info("No hay publicaciones recientes en eToro sobre este activo.")
+        return
+    p_scored, p_summary, p_used = analyze_texts(ANALYZER, tuple(p.text for p in posts), label(ticker) + " (opiniones de inversores)")
+    sentiment_header(sentiment.aggregate(p_scored, [p.published for p in posts]), "publicaciones")
+    if p_summary:
+        st.info(p_summary)
+    st.caption("Son opiniones de usuarios, no noticias: úsalas como termómetro del ánimo, no como señal de compra o venta.")
+    render_items(posts, p_scored)
 
 
 def page_compare() -> None:
@@ -441,6 +578,7 @@ def page_guide() -> None:
 3. *Comparar activos*: rentabilidad, riesgo y correlación para diversificar mejor.
 4. *Mi cartera*: registra lo que tienes, mira tu ganancia y cómo rebalancear.
 5. *Simulador*: prueba con datos históricos aportar cada mes frente a invertir de golpe.
+6. *Noticias y sentimiento*: titulares recientes de un activo o de toda tu cartera, clasificados como positivos, neutrales o negativos.
 
 **Símbolos (Yahoo Finance)**
 | Tipo | Ejemplos |
@@ -460,6 +598,7 @@ def page_guide() -> None:
 - **Media móvil 50/200**: precio medio de las últimas 50/200 sesiones; indica la tendencia.
 - **RSI**: de 0 a 100; > 70 sobrecompra, < 30 sobreventa.
 - **MACD**: diferencia entre dos medias exponenciales; mide el impulso.
+- **Sentimiento**: tono de las noticias u opiniones sobre un activo, de −1 (muy negativo) a +1 (muy positivo). Es un dato complementario: las noticias suelen reflejarse en el precio muy rápido.
 - **DCA**: invertir una cantidad fija periódicamente, sin intentar adivinar el mejor momento.
 
 **Principios básicos**
@@ -475,6 +614,7 @@ def page_guide() -> None:
 {
     "Panorama de mercado": page_market,
     "Análisis de un activo": page_asset,
+    "Noticias y sentimiento": page_news,
     "Comparar activos": page_compare,
     "Mi cartera": page_portfolio,
     "Simulador de aportaciones": page_simulator,
