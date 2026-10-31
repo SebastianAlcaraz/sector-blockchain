@@ -149,19 +149,25 @@ class EToroClient:
         return bool(os.environ.get("ETORO_API_KEY") and os.environ.get("ETORO_USER_KEY"))
 
     def _get(self, path: str, params: dict | None = None):
+        return self._request("GET", path, params)
+
+    def _request(self, method: str, path: str, params: dict | None = None, body: dict | None = None):
         url = self.BASE + path + ("?" + urllib.parse.urlencode(params) if params else "")
-        req = urllib.request.Request(
-            url,
-            headers={
-                "x-api-key": self.api_key,
-                "x-user-key": self.user_key,
-                "x-request-id": str(uuid.uuid4()),
-                "Accept": "application/json",
-            },
-        )
+        headers = {
+            "x-api-key": self.api_key,
+            "x-user-key": self.user_key,
+            "x-request-id": str(uuid.uuid4()),
+            "Accept": "application/json",
+        }
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                raw = resp.read().decode("utf-8")
+                return json.loads(raw) if raw.strip() else {}
         except urllib.error.HTTPError as e:
             msg = {401: "claves no válidas", 403: "sin permiso", 404: "ruta no encontrada", 429: "límite de consultas superado (espera un minuto)"}.get(e.code, f"error HTTP {e.code}")
             raise EToroError(f"eToro: {msg}.") from e

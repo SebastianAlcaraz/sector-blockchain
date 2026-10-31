@@ -15,6 +15,9 @@ from invest import analysis, news, portfolio, sentiment, simulator
 from invest.catalog import CATALOG, all_assets, asset_class, label
 from invest.data import DemoSource, YahooSource
 from invest.indicators import bollinger, macd, rsi, sma
+from invest.trading import config as bot_config
+from invest.trading.broker import BrokerError
+from invest.trading.engine import Engine
 
 APP_DIR = Path(__file__).parent
 PORTFOLIO_FILE = APP_DIR / "data" / "cartera.json"
@@ -25,6 +28,26 @@ UP, DOWN, MUTED = "#1baf7a", "#e34948", "#8a8984"
 PERIODS = {"1 mes": "1mo", "3 meses": "3mo", "6 meses": "6mo", "1 año": "1y", "2 años": "2y", "5 años": "5y", "10 años": "10y"}
 
 st.set_page_config(page_title="Asistente de inversión", page_icon="📈", layout="wide")
+
+
+def require_password() -> None:
+    """Si existe APP_PASSWORD, pide la contraseña antes de mostrar nada (la web puede aprobar operaciones)."""
+    import hmac
+
+    expected = os.environ.get("APP_PASSWORD", "")
+    if not expected or st.session_state.get("auth_ok"):
+        return
+    st.title("📈 Asistente de inversión")
+    pwd = st.text_input("Contraseña", type="password")
+    if pwd:
+        if hmac.compare_digest(pwd.encode(), expected.encode()):
+            st.session_state.auth_ok = True
+            st.rerun()
+        st.error("Contraseña incorrecta.")
+    st.stop()
+
+
+require_password()
 
 
 # ---------------------------------------------------------------- utilidades
@@ -141,7 +164,7 @@ def ticker_picker(key: str, default: str = "AAPL") -> str:
 st.sidebar.title("📈 Asistente de inversión")
 page = st.sidebar.radio(
     "Sección",
-    ["Panorama de mercado", "Análisis de un activo", "Noticias y sentimiento", "Comparar activos", "Mi cartera", "Simulador de aportaciones", "Guía rápida"],
+    ["Panorama de mercado", "Análisis de un activo", "Noticias y sentimiento", "Comparar activos", "Mi cartera", "Simulador de aportaciones", "Bot de inversión", "Guía rápida"],
 )
 SOURCE = st.sidebar.radio(
     "Fuente de datos",
@@ -568,6 +591,198 @@ def page_simulator() -> None:
     st.caption("Rentabilidades pasadas no garantizan rentabilidades futuras. No incluye comisiones, impuestos ni tipo de cambio.")
 
 
+def local_time(iso: str | None) -> str:
+    if not iso:
+        return "—"
+    from datetime import datetime
+
+    return datetime.fromisoformat(iso).astimezone().strftime("%d/%m/%Y %H:%M")
+
+
+STATUS_ICON = {"pendiente": "🕒", "ejecutada": "✅", "rechazada": "✖️", "caducada": "⌛", "fallida": "⚠️", "descartada": "🚫", "aprobada": "…"}
+
+
+def page_bot() -> None:
+    st.header("Bot de inversión")
+    engine = Engine()
+    cfg = engine.cfg
+    store = engine.store
+    st.caption(
+        f"Modo: **{bot_config.MODES[cfg.modo]}** · Asesor: **{bot_config.ADVISORS[cfg.asesor]}** · "
+        f"Aprobación: **{'tú apruebas cada operación' if cfg.requiere_aprobacion else 'automática'}**. "
+        "La IA propone; unas reglas de riesgo fijas filtran cada propuesta antes de llegar aquí. "
+        f"Datos del bot: **{'Yahoo Finance' if cfg.fuente_datos == 'yahoo' else 'simulados'}** (se cambia en Configuración, abajo)."
+    )
+
+    paused = store.paused
+    c1, c2, c3 = st.columns([1.2, 1.2, 3])
+    if paused:
+        c1.error("⏸ Detenido")
+        if c2.button("▶ Reanudar bot", type="primary"):
+            store.set_paused(False)
+            st.rerun()
+    else:
+        c1.success("● Activo")
+        if c2.button("⏹ Detener bot (emergencia)"):
+            store.set_paused(True, "Detenido desde la web.")
+            st.rerun()
+    with c3:
+        cost_note = " Usa la IA de Claude: tiene un pequeño coste." if cfg.asesor == "claude" else ""
+        if st.button("🔎 Analizar el mercado ahora", help="Normalmente lo hace el temporizador de la Raspberry." + cost_note):
+            with st.spinner("Estudiando el mercado…"):
+                result = engine.run_cycle()
+            if result.get("ok"):
+                st.success("Análisis completado." if not result.get("paused") else "El bot está detenido: solo se actualizó el valor de la cartera.")
+            else:
+                st.error(f"El análisis falló: {result.get('error')}")
+
+    try:
+        positions = engine.broker.positions()
+        cash = engine.broker.cash()
+    except BrokerError as exc:
+        st.error(f"No se pudo conectar con el bróker: {exc}")
+        positions, cash = {}, 0.0
+
+    tickers = list(positions) + [cfg.referencia]
+    try:
+        prices, _ = engine.prices(tickers)
+    except Exception:
+        prices = {}
+    equity = cash + sum(p.units * prices.get(t, p.avg_price) for t, p in positions.items())
+    hist = pd.DataFrame(store.equity_history())
+
+    k = st.columns(4)
+    k[0].metric("Valor de la cartera", money(equity))
+    k[1].metric("Efectivo", money(cash), help=f"{pct(cash / equity)} de la cartera" if equity else None)
+    if cfg.modo == "simulacion":
+        k[2].metric("Resultado", money(equity - cfg.capital_inicial), pct(equity / cfg.capital_inicial - 1, True))
+    if len(hist) >= 2 and hist["benchmark"].notna().sum() >= 2:
+        b = hist.dropna(subset=["benchmark"])
+        bot_ret = equity / hist["equity"].iloc[0] - 1
+        ref_ret = b["benchmark"].iloc[-1] / b["benchmark"].iloc[0] - 1
+        k[3].metric(f"Frente a {cfg.referencia}", pct(bot_ret - ref_ret, True), help=f"Bot {pct(bot_ret, True)} · {cfg.referencia} {pct(ref_ret, True)} desde el primer registro")
+
+    # ---------------------------------------------------------- propuestas pendientes
+    pending = store.proposals("pendiente")
+    st.subheader(f"Propuestas pendientes ({len(pending)})")
+    if not pending:
+        st.caption("No hay nada que aprobar ahora mismo.")
+    for p in pending:
+        with st.container(border=True):
+            side = "🟢 Comprar" if p["side"] == "comprar" else "🔴 Vender"
+            st.markdown(f"**{side} {label(p['ticker'])}** · {money(p['amount'])} a ~{money(p['price'])} · confianza {p['confidence']:.0%}")
+            st.markdown(f"**Motivo:** {p['reason']}")
+            if p["risks"]:
+                st.markdown(f"**Riesgos:** {p['risks']}")
+            if p["checks"]:
+                st.caption("Control de riesgo: " + " ".join(p["checks"]))
+            st.caption(f"Propuesta el {local_time(p['created'])}; caduca a las {cfg.caducidad_propuesta_horas:g} h.")
+            a, r, _ = st.columns([1, 1, 4])
+            if a.button("Aprobar", key=f"ok{p['id']}", type="primary"):
+                with st.spinner("Comprobando precio y ejecutando…"):
+                    ok, msg = engine.approve(p["id"])
+                (st.success if ok else st.error)(msg)
+                st.rerun() if ok else None
+            if r.button("Rechazar", key=f"no{p['id']}"):
+                engine.reject(p["id"])
+                st.rerun()
+
+    last = store.get("last_cycle")
+    if last:
+        st.subheader("Último análisis")
+        st.caption(f"{local_time(last['ts'])} · {last['asesor']} · {last['propuestas']} propuesta(s)")
+        st.info(last["resumen"])
+
+    # ---------------------------------------------------------- cartera del bot
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Posiciones del bot")
+        if positions:
+            rows = [{"Activo": label(t), "Unidades": p.units, "Precio medio": p.avg_price, "Precio actual": prices.get(t), "Stop-loss": p.stop_price,
+                     "Ganancia %": (prices.get(t, p.avg_price) / p.avg_price - 1)} for t, p in positions.items()]
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, column_config={
+                "Unidades": st.column_config.NumberColumn(format="%.6g"), "Precio medio": st.column_config.NumberColumn(format="%.2f"),
+                "Precio actual": st.column_config.NumberColumn(format="%.2f"), "Stop-loss": st.column_config.NumberColumn(format="%.2f"),
+                "Ganancia %": st.column_config.NumberColumn(format="percent")})
+        else:
+            st.caption("Sin posiciones abiertas.")
+    with right:
+        st.subheader(f"Evolución frente a {cfg.referencia}")
+        if len(hist) >= 2:
+            hist["ts"] = pd.to_datetime(hist["ts"])
+            fig = go.Figure(go.Scatter(x=hist["ts"], y=100 * hist["equity"] / hist["equity"].iloc[0], name="Bot", line=dict(color=SERIES[0], width=2)))
+            b = hist.dropna(subset=["benchmark"])
+            if len(b) >= 2:
+                fig.add_trace(go.Scatter(x=b["ts"], y=100 * b["benchmark"] / b["benchmark"].iloc[0], name=f"{cfg.referencia} (comprar y mantener)", line=dict(color=SERIES[1], width=2)))
+            st.plotly_chart(style_chart(fig, 300), use_container_width=True)
+        else:
+            st.caption("Aparecerá cuando haya al menos dos análisis.")
+
+    t1, t2, t3 = st.tabs(["Historial de propuestas", "Operaciones", "Registro"])
+    with t1:
+        props = store.proposals()
+        if props:
+            st.dataframe(pd.DataFrame([{"": STATUS_ICON.get(p["status"], ""), "Fecha": local_time(p["created"]), "Activo": p["ticker"], "Acción": p["side"],
+                                        "Importe": p["amount"], "Confianza": p["confidence"], "Estado": p["status"],
+                                        "Motivo / resultado": p["result"] or (" ".join(p["checks"]) if p["status"] == "descartada" else p["reason"])} for p in props]),
+                         hide_index=True, use_container_width=True, column_config={"Importe": st.column_config.NumberColumn(format="%.2f"), "Confianza": st.column_config.NumberColumn(format="percent")})
+        else:
+            st.caption("Todavía no hay propuestas.")
+    with t2:
+        trades = store.trades()
+        if trades:
+            st.dataframe(pd.DataFrame([{"Fecha": local_time(t["ts"]), "Activo": t["ticker"], "Acción": t["side"], "Unidades": t["units"], "Precio": t["price"],
+                                        "Importe": t["amount"], "Coste": t["fee"], "Origen": t["origin"]} for t in trades]), hide_index=True, use_container_width=True)
+        else:
+            st.caption("Todavía no hay operaciones.")
+    with t3:
+        for ev in store.events(50):
+            icon = {"error": "🔴", "aviso": "🟠"}.get(ev["level"], "⚪")
+            st.markdown(f"{icon} `{local_time(ev['ts'])}` {ev['message']}")
+
+    # ---------------------------------------------------------- configuración
+    with st.expander("⚙️ Configuración del bot"):
+        with st.form("bot_cfg"):
+            a, b, c = st.columns(3)
+            modo = a.selectbox("Modo", list(bot_config.MODES), index=list(bot_config.MODES).index(cfg.modo), format_func=bot_config.MODES.get)
+            asesor = b.selectbox("Asesor", list(bot_config.ADVISORS), index=list(bot_config.ADVISORS).index(cfg.asesor), format_func=bot_config.ADVISORS.get)
+            fuente = c.selectbox("Datos de mercado", ["yahoo", "demo"], index=["yahoo", "demo"].index(cfg.fuente_datos), format_func={"yahoo": "Yahoo Finance (reales)", "demo": "Simulados"}.get)
+            options = sorted(set(all_assets()) | set(cfg.lista_activos))
+            lista = st.multiselect("Activos que el bot puede operar", options, default=cfg.lista_activos, format_func=label)
+            a, b, c, d = st.columns(4)
+            max_op = a.number_input("Máx. por operación (%)", 0.5, 50.0, float(cfg.max_operacion_pct), 0.5)
+            max_pos = b.number_input("Máx. por activo (%)", 1.0, 100.0, float(cfg.max_posicion_pct), 1.0)
+            min_liq = c.number_input("Liquidez mínima (%)", 0.0, 90.0, float(cfg.min_liquidez_pct), 1.0)
+            stop = d.number_input("Stop-loss (%)", 1.0, 50.0, float(cfg.stop_loss_pct), 0.5)
+            a, b, c, d = st.columns(4)
+            p_dia = a.number_input("Pérdida máx. diaria (%)", 0.5, 50.0, float(cfg.max_perdida_diaria_pct), 0.5)
+            p_sem = b.number_input("Pérdida máx. semanal (%)", 0.5, 50.0, float(cfg.max_perdida_semanal_pct), 0.5)
+            ops = c.number_input("Operaciones máx. al día", 1, 50, int(cfg.max_operaciones_dia))
+            conf = d.number_input("Confianza mínima", 0.0, 1.0, float(cfg.confianza_minima), 0.05)
+            a, b = st.columns(2)
+            capital = a.number_input("Capital inicial de la simulación", 100.0, 10_000_000.0, float(cfg.capital_inicial), 100.0)
+            aprobacion = b.checkbox("Pedir mi aprobación para cada operación", value=cfg.requiere_aprobacion)
+            sl_auto = b.checkbox("Vender automáticamente si salta el stop-loss", value=cfg.stop_loss_automatico)
+            if st.form_submit_button("Guardar configuración", type="primary"):
+                new = bot_config.BotConfig(**{**cfg.__dict__, "modo": modo, "asesor": asesor, "fuente_datos": fuente, "lista_activos": lista,
+                    "max_operacion_pct": max_op, "max_posicion_pct": max_pos, "min_liquidez_pct": min_liq, "stop_loss_pct": stop,
+                    "max_perdida_diaria_pct": p_dia, "max_perdida_semanal_pct": p_sem, "max_operaciones_dia": int(ops), "confianza_minima": conf,
+                    "capital_inicial": capital, "requiere_aprobacion": aprobacion, "stop_loss_automatico": sl_auto})
+                errors = engine.save_config(new)
+                if errors:
+                    st.error(" ".join(errors))
+                else:
+                    st.success("Configuración guardada.")
+                    st.rerun()
+        if not cfg.requiere_aprobacion:
+            st.warning("El bot opera sin pedir aprobación. Revisa los límites de riesgo.")
+        if cfg.modo == "simulacion":
+            confirm = st.checkbox("Quiero borrar la simulación y empezar de cero")
+            if st.button("Reiniciar simulación", disabled=not confirm):
+                engine.reset_simulation()
+                st.rerun()
+
+
 def page_guide() -> None:
     st.header("Guía rápida")
     st.markdown(
@@ -618,5 +833,6 @@ def page_guide() -> None:
     "Comparar activos": page_compare,
     "Mi cartera": page_portfolio,
     "Simulador de aportaciones": page_simulator,
+    "Bot de inversión": page_bot,
     "Guía rápida": page_guide,
 }[page]()

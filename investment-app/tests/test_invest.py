@@ -91,3 +91,9 @@ def test_demo_source_reproducible():
     assert list(a.columns) == ["AAPL", "GC=F", "BTC-USD"]
     assert len(a) > 200 and (a > 0).all().all()
     pd.testing.assert_frame_equal(a, b)
+
+
+def test_demo_last_price_does_not_depend_on_period():
+    a = DemoSource().closes(["AAPL", "GC=F"], "1mo").iloc[-1]
+    b = DemoSource().closes(["AAPL", "GC=F"], "5y").iloc[-1]
+    pd.testing.assert_series_equal(a, b)

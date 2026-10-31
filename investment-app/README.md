@@ -15,6 +15,7 @@ materias primas, criptomonedas, índices y divisas**, con datos gratuitos de Yah
 | **Mi cartera** | Registra tus posiciones, ve ganancias/pérdidas, distribución por clase de activo, alertas de concentración y cuánto comprar/vender para rebalancear. |
 | **Noticias y sentimiento** | Titulares recientes de un activo o de toda tu cartera, clasificados como positivos, neutrales o negativos, con una puntuación global (las noticias recientes pesan más). Opcionalmente, opiniones de la comunidad de eToro. |
 | **Simulador** | Compara con datos históricos aportar cada mes (DCA) frente a invertir todo de golpe. |
+| **Bot de inversión** | Estudia el mercado cada pocas horas (con la IA de Claude o con reglas técnicas), propone compras y ventas, las filtra con límites de riesgo fijos y espera tu aprobación desde la web. Simulación local o cuenta demo de eToro. |
 | **Guía rápida** | Cómo escribir los símbolos y glosario de términos. |
 
 Hay un **modo demo** con precios simulados para probar la app sin conexión.
@@ -56,6 +57,51 @@ Tu cartera se guarda localmente en `data/cartera.json` (excluido de git).
 
 Nunca guardes las claves dentro del código ni las subas al repositorio.
 
+## Bot de inversión
+
+```
+Temporizador (cada ~4 h) → estudio de mercado → la IA propone → control de riesgo → tú apruebas en la web → bróker
+```
+
+- **Estudio de mercado**: precios, medias móviles, RSI, MACD, volatilidad, caídas, noticias con su sentimiento y tu posición en cada activo.
+- **Asesor**: *IA (Claude)* razona cada propuesta (motivo, riesgos y confianza); *Reglas técnicas* es la alternativa gratuita sin IA.
+- **Control de riesgo** (reglas fijas que la IA no puede saltarse): solo activos de tu lista; máximo por operación (5 %) y por activo (20 %);
+  liquidez mínima (10 %); stop-loss en cada compra (8 %); límites de pérdida diaria (3 %) y semanal (6 %, detiene el bot);
+  máximo de operaciones al día; confianza mínima; sin apalancamiento. Todo se ajusta en la web.
+- **Aprobación**: cada propuesta espera a que pulses *Aprobar* o *Rechazar*. Caduca a las 6 h, y si el precio se ha movido
+  más de un 2 % desde la propuesta no se ejecuta.
+- **Botón de parada de emergencia**: detiene análisis y compras. Los stop-loss siguen protegiendo las posiciones.
+- **Modos**:
+  - *Simulación local* (por defecto): precios reales, dinero ficticio, con coste por operación simulado.
+  - *Cuenta demo de eToro* (experimental, sin probar con una cuenta real): necesita las claves de eToro. El código
+    solo permite rutas de la cuenta demo; no hay ninguna opción para operar con dinero real.
+- La web compara el resultado del bot con comprar y mantener el índice de referencia (SPY por defecto).
+  Si tras semanas de simulación el bot no lo supera, no merece la pena seguir.
+
+Ejecutar un ciclo a mano: `python -m invest.trading` (o `python -m invest.trading --estado`).
+
+## Instalación en una Raspberry Pi
+
+Requisitos: Raspberry Pi 4 (4 GB) o Pi 5 con **Raspberry Pi OS de 64 bits**; mejor con disco SSD que con tarjeta SD.
+
+```bash
+sudo timedatectl set-timezone Europe/Madrid      # tu zona horaria
+git clone <este repositorio> && cd sector-blockchain/investment-app
+bash deploy/raspberry/install.sh
+nano ~/.config/asistente-inversion/env           # añade ANTHROPIC_API_KEY (y las de eToro si las tienes)
+sudo systemctl restart asistente-web
+```
+
+El instalador:
+- crea el entorno de Python;
+- genera una contraseña para la web;
+- deja la web funcionando en `http://<ip-de-la-raspberry>:8501`;
+- programa el bot cada 4 horas en días laborables y una vez al día los fines de semana.
+
+Seguridad:
+- No abras el puerto 8501 en el router. Para entrar desde fuera de casa usa una VPN como [Tailscale](https://tailscale.com).
+- Las claves viven solo en `~/.config/asistente-inversion/env`, con permisos 600.
+
 ## Símbolos
 
 Se usan los de Yahoo Finance: `AAPL` (acción), `SAN.MC` (Bolsa de Madrid), `GGAL.BA` (Buenos Aires),
@@ -73,6 +119,8 @@ invest/portfolio.py  Valoración, distribución y rebalanceo
 invest/simulator.py  Simulación DCA / inversión única
 invest/news.py       Noticias (Yahoo, demo) y cliente experimental de eToro
 invest/sentiment.py  Sentimiento: diccionario financiero y análisis con Claude
+invest/trading/      Bot: estudio de mercado, asesores, riesgo, brókers, motor y almacenamiento
+deploy/raspberry/    Instalador y servicios systemd para la Raspberry Pi
 tests/               Pruebas (pytest)
 ```
 

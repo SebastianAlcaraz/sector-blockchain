@@ -1,0 +1,15 @@
+[Unit]
+Description=Asistente de inversión (web)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@ENV_FILE@
+ExecStart=@APP_DIR@/.venv/bin/streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

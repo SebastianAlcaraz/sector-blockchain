@@ -58,7 +58,9 @@ class DemoSource:
         if not tickers:
             return pd.DataFrame()
         end = pd.Timestamp.today().normalize()
-        idx = pd.bdate_range(end=end, periods=max(int(PERIOD_DAYS.get(period, 730) * 252 / 365), 2))
+        # Se genera siempre la serie completa y se recorta: así el último precio no depende del periodo pedido.
+        idx = pd.bdate_range(end=end, periods=int(PERIOD_DAYS["10y"] * 252 / 365))
+        keep = max(int(PERIOD_DAYS.get(period, 730) * 252 / 365), 2)
         # Factor de mercado común para que haya correlaciones realistas.
         market = np.random.default_rng(12345).normal(0, 1, len(idx))
         out = {}
@@ -71,7 +73,7 @@ class DemoSource:
             log_ret = (mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * shocks
             start = p0 * rng.uniform(0.3, 1.7)
             out[t] = start * np.exp(np.cumsum(log_ret))
-        return pd.DataFrame(out, index=idx)
+        return pd.DataFrame(out, index=idx).iloc[-keep:]
 
 
 def last_prices(source, tickers: list[str]) -> dict[str, float]:

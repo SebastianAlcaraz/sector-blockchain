@@ -1,0 +1,13 @@
+[Unit]
+Description=Ejecuta el bot de inversión cada 4 horas (medio plazo)
+
+[Timer]
+# Días laborables: 09:30, 13:30, 17:30 y 21:30 (hora de la Raspberry).
+OnCalendar=Mon..Fri *-*-* 09,13,17,21:30:00
+# Fin de semana: una vez al día (las criptomonedas cotizan siempre).
+OnCalendar=Sat,Sun *-*-* 12:30:00
+# Si la Raspberry estaba apagada a esa hora, se ejecuta al encenderla.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
