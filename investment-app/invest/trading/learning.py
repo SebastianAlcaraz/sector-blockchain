@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from ..llm import DEFAULT_MODEL, ApiBackend, LLMError
 from . import backtest
 from .strategy import BOUNDS, DEFAULT_PLAYBOOK, StrategyParams
 
@@ -135,7 +136,7 @@ Principios:
 - Escribe en español claro para alguien no experto."""
 
 
-def claude_candidate(client, current: dict, stats: dict, sample: list[dict], current_bt: dict, bot_vs_ref: dict) -> dict:
+def claude_candidate(backend, current: dict, stats: dict, sample: list[dict], current_bt: dict, bot_vs_ref: dict, model: str = DEFAULT_MODEL) -> dict:
     from pydantic import BaseModel, Field, create_model
 
     Params = create_model("Params", **{k: (int if k == "dias_minimos" else float, ...) for k in BOUNDS})
@@ -156,19 +157,8 @@ def claude_candidate(client, current: dict, stats: dict, sample: list[dict], cur
         "resultado_real_del_bot": bot_vs_ref,
         "nota": "El sentimiento de noticias no existe en el histórico: la prueba histórica solo usa señales técnicas.",
     }
-    response = client.beta.messages.parse(
-        model="claude-opus-5-5",
-        max_tokens=16000,
-        system=REVIEW_SYSTEM,
-        output_config={"effort": "high"},
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-        messages=[{"role": "user", "content": "Revisión semanal. Datos:\n```json\n" + json.dumps(payload, ensure_ascii=False, indent=1, default=str) + "\n```"}],
-        output_format=Review,
-    )
-    if response.stop_reason == "refusal" or response.parsed_output is None:
-        raise RuntimeError("Claude no devolvió una revisión válida.")
-    r = response.parsed_output
+    prompt = "Revisión semanal. Datos:\n```json\n" + json.dumps(payload, ensure_ascii=False, indent=1, default=str) + "\n```"
+    r = backend.structured(prompt, Review, system=REVIEW_SYSTEM, effort="high", model=model)
     return {
         "params": StrategyParams.from_dict(r.parametros.model_dump()),
         "playbook": r.manual.strip(),
@@ -206,18 +196,23 @@ def review(engine: "Engine", client=None) -> dict:
     if len(hist) >= 2 and hist[0]["benchmark"] and hist[-1]["benchmark"]:
         bot_vs_ref = {"bot": round(hist[-1]["equity"] / hist[0]["equity"] - 1, 4), "referencia": round(hist[-1]["benchmark"] / hist[0]["benchmark"] - 1, 4), "desde": hist[0]["ts"]}
 
+    cand = None
+    note = ""
     if cfg.asesor == "claude":
-        if client is None:
-            import anthropic
-
-            client = anthropic.Anthropic()
-        cand = claude_candidate(client, current, stats, sample, cur_bt, bot_vs_ref)
-    else:
+        backend = ApiBackend(client) if client is not None else engine.llm_backend()
+        try:
+            cand = claude_candidate(backend, current, stats, sample, cur_bt, bot_vs_ref, cfg.modelo_ia)
+        except LLMError as exc:
+            if not cfg.respaldo_reglas:
+                raise
+            note = f"Claude no estuvo disponible ({exc}); se usó el optimizador sin IA. "
+            engine.store.log("aviso", "Revisión: " + note)
+    if cand is None:
         params = optimize(closes, cur_params, cfg)
         cand = {
             "params": params, "playbook": current["playbook"], "lessons": current["lessons"], "origin": "optimizador",
             "changelog": "Ajuste automático de parámetros por búsqueda en datos históricos (sin IA).",
-            "diagnosis": f"{stats['evaluadas']} decisiones evaluadas. " + "; ".join(f"{a}: {r.get('aciertos', '—')} aciertos, exceso medio {r['exceso_medio']:+.2%}" for a, r in stats["por_accion"].items()),
+            "diagnosis": note + f"{stats['evaluadas']} decisiones evaluadas. " + "; ".join(f"{a}: {r.get('aciertos', '—')} aciertos, exceso medio {r['exceso_medio']:+.2%}" for a, r in stats["por_accion"].items()),
         }
 
     cand_bt = backtest.evaluate(closes, cand["params"], cfg)

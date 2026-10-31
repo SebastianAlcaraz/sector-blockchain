@@ -7,6 +7,8 @@ Wants=network-online.target
 User=@USER@
 WorkingDirectory=@APP_DIR@
 EnvironmentFile=@ENV_FILE@
+# Para encontrar el programa `claude` (Claude Code) instalado por el instalador oficial.
+Environment=PATH=@HOME@/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=@APP_DIR@/.venv/bin/streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
 Restart=on-failure
 RestartSec=10

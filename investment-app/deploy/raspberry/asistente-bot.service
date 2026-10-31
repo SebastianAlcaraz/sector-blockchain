@@ -8,5 +8,7 @@ Type=oneshot
 User=@USER@
 WorkingDirectory=@APP_DIR@
 EnvironmentFile=@ENV_FILE@
+# Para encontrar el programa `claude` (Claude Code) instalado por el instalador oficial.
+Environment=PATH=@HOME@/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=@APP_DIR@/.venv/bin/python -m invest.trading
 TimeoutStartSec=900

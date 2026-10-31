@@ -11,6 +11,7 @@ from ..catalog import label
 from ..data import DemoSource, YahooSource
 from ..news import demo_news, yahoo_news
 from ..sentiment import LexiconAnalyzer, aggregate
+from ..llm import LLMError, get_backend
 from .advisor import Advice, ClaudeAdvisor, RuleAdvisor
 from .broker import BrokerError, EToroDemoBroker, PaperBroker
 from .config import BotConfig
@@ -53,10 +54,13 @@ class Engine:
                 self._broker = PaperBroker(self.store, self.cfg.capital_inicial, self.cfg.diferencial_pct)
         return self._broker
 
+    def llm_backend(self):
+        return get_backend(self.cfg.motor_ia)
+
     @property
     def advisor(self):
         if self._advisor is None:
-            self._advisor = ClaudeAdvisor() if self.cfg.asesor == "claude" else RuleAdvisor()
+            self._advisor = ClaudeAdvisor(self.llm_backend(), model=self.cfg.modelo_ia) if self.cfg.asesor == "claude" else RuleAdvisor()
         return self._advisor
 
     def prices(self, tickers: list[str], period: str = "1mo") -> tuple[dict[str, float], pd.DataFrame]:
@@ -160,7 +164,15 @@ class Engine:
             s.puntuacion_estrategia = score_snapshot(s, params)
             snaps.append(s)
 
-        advice: Advice = self.advisor.advise(snaps, cfg, 100 * ctx.cash / ctx.equity if ctx.equity else 100, strategy)
+        cash_pct = 100 * ctx.cash / ctx.equity if ctx.equity else 100
+        try:
+            advice: Advice = self.advisor.advise(snaps, cfg, cash_pct, strategy)
+        except LLMError as exc:
+            if not cfg.respaldo_reglas:
+                raise
+            self.store.log("aviso", f"Claude no está disponible ({exc}). Este ciclo usa las reglas de la estrategia.")
+            advice = RuleAdvisor().advise(snaps, cfg, cash_pct, strategy)
+            advice.asesor = "Reglas de la estrategia (respaldo: Claude no disponible)"
         created = self._proposals_from(advice, ctx)
         self._journal(advice, snaps, prices, strategy["id"])
         try:

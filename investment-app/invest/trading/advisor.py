@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
+from ..llm import DEFAULT_MODEL, ApiBackend
 from .config import BotConfig
 from .market import AssetSnapshot
 from .strategy import DEFAULT_PLAYBOOK, StrategyParams
@@ -76,12 +77,11 @@ Un sistema de control de riesgo independiente revisará cada propuesta y la pers
 
 class ClaudeAdvisor:
     name = "IA (Claude)"
-    model = "claude-opus-5-5"
 
-    def __init__(self, client=None):
-        import anthropic
-
-        self.client = client or anthropic.Anthropic()
+    def __init__(self, backend=None, client=None, model: str = DEFAULT_MODEL):
+        """backend: ApiBackend o ClaudeCodeBackend. `client` (API) se mantiene por compatibilidad."""
+        self.backend = backend or ApiBackend(client)
+        self.model = model
 
     def advise(self, snaps: list[AssetSnapshot], cfg: BotConfig, cash_pct: float, strategy: dict | None = None) -> Advice:
         from pydantic import BaseModel, Field
@@ -121,22 +121,11 @@ class ClaudeAdvisor:
             f"```json\n{json.dumps(payload, ensure_ascii=False, indent=1)}\n```\n"
             "Devuelve una decisión por cada activo de la lista, con el mismo ticker."
         )
-        response = self.client.beta.messages.parse(
-            model=self.model,
-            max_tokens=16000,
-            system=SYSTEM_PROMPT,
-            output_config={"effort": "medium"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            messages=[{"role": "user", "content": prompt}],
-            output_format=Result,
-        )
-        if response.stop_reason == "refusal" or response.parsed_output is None:
-            raise RuntimeError("Claude no devolvió un análisis válido.")
+        parsed = self.backend.structured(prompt, Result, system=SYSTEM_PROMPT, effort="medium", model=self.model)
         valid = {s.ticker for s in snaps}
         decisions = [
             Decision(i.ticker, i.accion, max(0.0, i.importe_pct), min(max(0.0, i.fraccion_venta), 1.0), min(max(0.0, i.confianza), 1.0), i.motivo, i.riesgos)
-            for i in response.parsed_output.decisiones
+            for i in parsed.decisiones
             if i.ticker in valid
         ]
-        return Advice(decisions, response.parsed_output.resumen, self.name)
+        return Advice(decisions, parsed.resumen, self.name)

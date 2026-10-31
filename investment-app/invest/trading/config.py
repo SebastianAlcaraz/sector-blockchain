@@ -15,6 +15,9 @@ class BotConfig:
     # Qué y cómo
     modo: str = "simulacion"
     asesor: str = "claude"
+    motor_ia: str = "api"  # "api" (clave de Anthropic) o "suscripcion" (Claude Code con tu plan)
+    modelo_ia: str = "claude-opus-5-5"
+    respaldo_reglas: bool = True  # si Claude no está disponible, usar las reglas de la estrategia en ese ciclo
     fuente_datos: str = "yahoo"  # "yahoo" o "demo"
     lista_activos: list[str] = field(default_factory=lambda: ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "GLD", "GC=F", "CL=F", "BTC-USD"])
     referencia: str = "SPY"  # para comparar el resultado del bot con "comprar y mantener"
@@ -64,6 +67,8 @@ class BotConfig:
             errors.append(f"Modo desconocido: {self.modo}")
         if self.asesor not in ADVISORS:
             errors.append(f"Asesor desconocido: {self.asesor}")
+        if self.motor_ia not in ("api", "suscripcion"):
+            errors.append(f"Conexión con Claude desconocida: {self.motor_ia}")
         if not self.lista_activos:
             errors.append("La lista de activos está vacía.")
         for name in ("max_operacion_pct", "max_posicion_pct", "max_perdida_diaria_pct", "max_perdida_semanal_pct", "stop_loss_pct"):

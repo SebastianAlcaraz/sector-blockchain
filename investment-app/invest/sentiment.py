@@ -132,12 +132,12 @@ class ClaudeAnalyzer:
     """Clasifica un lote de textos con una sola llamada a la API de Claude."""
 
     name = "IA (Claude)"
-    model = "claude-opus-5-5"
 
-    def __init__(self, client=None):
-        import anthropic
+    def __init__(self, client=None, backend=None, model: str | None = None):
+        from .llm import DEFAULT_MODEL, ApiBackend
 
-        self.client = client or anthropic.Anthropic()
+        self.backend = backend or ApiBackend(client)
+        self.model = model or DEFAULT_MODEL
 
     def score_many(self, texts: list[str], context: str = "") -> tuple[list[Scored], str]:
         from pydantic import BaseModel, Field
@@ -163,18 +163,8 @@ class ClaudeAnalyzer:
             "Devuelve un elemento por texto con su mismo índice, y un resumen general.\n\n"
             f"Textos:\n{listing}"
         )
-        response = self.client.beta.messages.parse(
-            model=self.model,
-            max_tokens=16000,
-            output_config={"effort": "low"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            messages=[{"role": "user", "content": prompt}],
-            output_format=Result,
-        )
-        if response.stop_reason == "refusal" or response.parsed_output is None:
-            raise RuntimeError("Claude no pudo analizar estos textos.")
-        by_index = {it.indice: it for it in response.parsed_output.items}
+        parsed = self.backend.structured(prompt, Result, effort="low", model=self.model)
+        by_index = {it.indice: it for it in parsed.items}
         out = []
         for i, t in enumerate(texts):
             it = by_index.get(i)
@@ -183,7 +173,7 @@ class ClaudeAnalyzer:
                 continue
             score = max(-1.0, min(1.0, float(it.puntuacion)))
             out.append(Scored(t, score, label_for(score), it.motivo))
-        return out, response.parsed_output.resumen
+        return out, parsed.resumen
 
 
 @dataclass

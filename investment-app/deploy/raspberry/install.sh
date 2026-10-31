@@ -33,9 +33,19 @@ if ! grep -q '^APP_PASSWORD=.\+' "$ENV_FILE"; then
   echo "    Contraseña de la web generada: $PASS  (guárdala; está en $ENV_FILE)"
 fi
 
+echo "==> Claude Code (para usar tu suscripción de Claude en lugar de la API)"
+if command -v claude > /dev/null || [ -x "$HOME/.local/bin/claude" ]; then
+  echo "    Ya está instalado."
+else
+  read -r -p "    ¿Instalar Claude Code? Solo hace falta si vas a usar tu suscripción [s/N] " ANS
+  if [ "${ANS,,}" = "s" ]; then
+    curl -fsSL https://claude.ai/install.sh | bash
+  fi
+fi
+
 echo "==> Instalando los servicios"
 for unit in asistente-web.service asistente-bot.service asistente-bot.timer asistente-review.service asistente-review.timer; do
-  sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@USER@|$USER_NAME|g" -e "s|@ENV_FILE@|$ENV_FILE|g" \
+  sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@USER@|$USER_NAME|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@HOME@|$HOME|g" \
     "$APP_DIR/deploy/raspberry/$unit" | sudo tee "/etc/systemd/system/$unit" > /dev/null
 done
 sudo systemctl daemon-reload
@@ -47,6 +57,7 @@ cat <<MSG
 Listo.
   - Web:            http://$IP:8501   (desde tu red de casa)
   - Claves:         nano $ENV_FILE    y después: sudo systemctl restart asistente-web
+  - Suscripción:    ~/.local/bin/claude setup-token   (copia el token en CLAUDE_CODE_OAUTH_TOKEN del archivo de claves)
   - Próximos ciclos: systemctl list-timers asistente-bot.timer
   - Ciclo manual:   sudo systemctl start asistente-bot.service
   - Revisión manual de la estrategia: sudo systemctl start asistente-review.service

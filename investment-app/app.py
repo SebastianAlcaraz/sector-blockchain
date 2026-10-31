@@ -15,6 +15,7 @@ from invest import analysis, news, portfolio, sentiment, simulator
 from invest.catalog import CATALOG, all_assets, asset_class, label
 from invest.data import DemoSource, YahooSource
 from invest.indicators import bollinger, macd, rsi, sma
+from invest.llm import BACKENDS as LLM_BACKENDS
 from invest.trading import config as bot_config
 from invest.trading.broker import BrokerError
 from invest.trading.engine import Engine
@@ -109,7 +110,11 @@ def analyze_texts(analyzer_name: str, texts: tuple[str, ...], context: str) -> t
     """Devuelve (puntuaciones, resumen, analizador usado). Si Claude falla, usa el diccionario."""
     if analyzer_name == sentiment.ClaudeAnalyzer.name:
         try:
-            scored, summary = sentiment.ClaudeAnalyzer().score_many(list(texts), context)
+            from invest.llm import get_backend
+            from invest.trading.engine import default_dir
+
+            bcfg = bot_config.BotConfig.load(default_dir() / "config.json")  # misma conexión que el bot
+            scored, summary = sentiment.ClaudeAnalyzer(backend=get_backend(bcfg.motor_ia), model=bcfg.modelo_ia).score_many(list(texts), context)
             return scored, summary, analyzer_name
         except Exception as exc:  # sin clave, sin red, límite de uso…
             scored, _ = sentiment.LexiconAnalyzer().score_many(list(texts))
@@ -736,7 +741,8 @@ def page_bot() -> None:
     cfg = engine.cfg
     store = engine.store
     st.caption(
-        f"Modo: **{bot_config.MODES[cfg.modo]}** · Asesor: **{bot_config.ADVISORS[cfg.asesor]}** · "
+        f"Modo: **{bot_config.MODES[cfg.modo]}** · Asesor: **{bot_config.ADVISORS[cfg.asesor]}**"
+        + (f" vía **{LLM_BACKENDS[cfg.motor_ia]}**" if cfg.asesor == "claude" else "") + " · "
         f"Aprobación: **{'tú apruebas cada operación' if cfg.requiere_aprobacion else 'automática'}**. "
         "La IA propone; unas reglas de riesgo fijas filtran cada propuesta antes de llegar aquí. "
         f"Datos del bot: **{'Yahoo Finance' if cfg.fuente_datos == 'yahoo' else 'simulados'}** (se cambia en Configuración, abajo)."
@@ -893,17 +899,38 @@ def page_bot() -> None:
             capital = a.number_input("Capital inicial de la simulación", 100.0, 10_000_000.0, float(cfg.capital_inicial), 100.0)
             aprobacion = b.checkbox("Pedir mi aprobación para cada operación", value=cfg.requiere_aprobacion)
             sl_auto = b.checkbox("Vender automáticamente si salta el stop-loss", value=cfg.stop_loss_automatico)
+            st.markdown("**Conexión con Claude** (para el asesor IA, la revisión semanal y el análisis de noticias)")
+            a, b, c = st.columns([2, 1.5, 1.5])
+            motor = a.radio("Usar", list(LLM_BACKENDS), index=list(LLM_BACKENDS).index(cfg.motor_ia), format_func=LLM_BACKENDS.get,
+                            help="Suscripción: sin coste extra, gasta los límites de tu plan (compartidos con tu uso de Claude). API: pago por uso con ANTHROPIC_API_KEY.")
+            models = ["claude-opus-5-5", "claude-sonnet-5-5"]
+            modelo = b.selectbox("Modelo", models + ([cfg.modelo_ia] if cfg.modelo_ia not in models else []), index=(models + [cfg.modelo_ia]).index(cfg.modelo_ia),
+                                 help="Opus razona mejor. Sonnet gasta menos (útil con los límites del plan Pro).")
+            respaldo = c.checkbox("Si Claude no está disponible, usar las reglas de la estrategia", value=cfg.respaldo_reglas,
+                                  help="Por ejemplo, si se agota el límite de tu suscripción. Si lo desactivas, ese ciclo no hace nada.")
             if st.form_submit_button("Guardar configuración", type="primary"):
                 new = bot_config.BotConfig(**{**cfg.__dict__, "modo": modo, "asesor": asesor, "fuente_datos": fuente, "lista_activos": lista,
                     "max_operacion_pct": max_op, "max_posicion_pct": max_pos, "min_liquidez_pct": min_liq, "stop_loss_pct": stop,
                     "max_perdida_diaria_pct": p_dia, "max_perdida_semanal_pct": p_sem, "max_operaciones_dia": int(ops), "confianza_minima": conf,
-                    "capital_inicial": capital, "requiere_aprobacion": aprobacion, "stop_loss_automatico": sl_auto})
+                    "capital_inicial": capital, "requiere_aprobacion": aprobacion, "stop_loss_automatico": sl_auto,
+                    "motor_ia": motor, "modelo_ia": modelo, "respaldo_reglas": respaldo})
                 errors = engine.save_config(new)
                 if errors:
                     st.error(" ".join(errors))
                 else:
                     st.success("Configuración guardada.")
                     st.rerun()
+        if st.button("🔌 Probar la conexión con Claude", help="Hace una consulta mínima con la conexión guardada."):
+            from invest.llm import LLMError, check
+
+            with st.spinner("Probando…"):
+                try:
+                    check(engine.llm_backend(), cfg.modelo_ia)
+                    st.success(f"Conexión correcta: {LLM_BACKENDS[cfg.motor_ia]} con {cfg.modelo_ia}.")
+                except LLMError as exc:
+                    st.error(str(exc))
+                except Exception as exc:
+                    st.error(f"No funcionó: {type(exc).__name__}: {exc}")
         if not cfg.requiere_aprobacion:
             st.warning("El bot opera sin pedir aprobación. Revisa los límites de riesgo.")
         if cfg.modo == "simulacion":

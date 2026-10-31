@@ -105,6 +105,34 @@ Ejecutar a mano:
 - el estado: `python -m invest.trading --estado`;
 - la revisión de la estrategia: `python -m invest.trading --revisar`.
 
+### Conexión con Claude: suscripción o API
+
+El bot puede usar Claude por dos vías. Se elige en *Bot de inversión → Configuración → Conexión con Claude*, y el botón
+*Probar la conexión con Claude* comprueba que funciona.
+
+| | Suscripción (Claude Code) | API de Anthropic |
+|---|---|---|
+| Qué necesitas | Plan Pro, Max o Ultra + Claude Code instalado | Clave `ANTHROPIC_API_KEY` con saldo |
+| Coste | Sin coste extra: gasta los límites de tu plan (compartidos con tu uso de Claude) | Pago por uso |
+| Si se agota | Ese ciclo usa las reglas de la estrategia (respaldo) | Igual, si se queda sin saldo |
+
+Configurar la suscripción en la Raspberry:
+```bash
+curl -fsSL https://claude.ai/install.sh | bash     # instala Claude Code (o acepta en el instalador)
+~/.local/bin/claude setup-token                     # abre el inicio de sesión y muestra un token (dura un año)
+nano ~/.config/asistente-inversion/env              # pégalo en CLAUDE_CODE_OAUTH_TOKEN=
+sudo systemctl restart asistente-web
+```
+
+Detalles:
+- El bot llama al programa oficial `claude` sin herramientas, solo para analizar el texto que le envía.
+- Le quita la `ANTHROPIC_API_KEY` al llamarlo, para que nunca cobre por API cuando eliges la suscripción.
+  Puedes tener las dos configuradas y cambiar desde la web.
+- Con el plan Pro los límites son más ajustados: el modelo *Sonnet* gasta menos que *Opus*.
+- Renueva el token antes de que caduque, al año.
+- Anthropic indica que los límites de los planes suponen un "uso normal e individual" de Claude Code. Es un uso personal,
+  pero si quieres total seguridad sobre las condiciones, usa la API.
+
 ## Instalación en una Raspberry Pi
 
 Requisitos: Raspberry Pi 4 (4 GB) o Pi 5 con **Raspberry Pi OS de 64 bits**; mejor con disco SSD que con tarjeta SD.
@@ -113,7 +141,7 @@ Requisitos: Raspberry Pi 4 (4 GB) o Pi 5 con **Raspberry Pi OS de 64 bits**; mej
 sudo timedatectl set-timezone Europe/Madrid      # tu zona horaria
 git clone <este repositorio> && cd sector-blockchain/investment-app
 bash deploy/raspberry/install.sh
-nano ~/.config/asistente-inversion/env           # añade ANTHROPIC_API_KEY (y las de eToro si las tienes)
+nano ~/.config/asistente-inversion/env           # añade CLAUDE_CODE_OAUTH_TOKEN o ANTHROPIC_API_KEY (y las de eToro si las tienes)
 sudo systemctl restart asistente-web
 ```
 
@@ -145,6 +173,7 @@ invest/portfolio.py  Valoración, distribución y rebalanceo
 invest/simulator.py  Simulación DCA / inversión única
 invest/news.py       Noticias (Yahoo, demo) y cliente experimental de eToro
 invest/sentiment.py  Sentimiento: diccionario financiero y análisis con Claude
+invest/llm.py        Conexión con Claude: API o suscripción (Claude Code), intercambiables
 invest/trading/      Bot: estudio de mercado, asesores, riesgo, brókers, motor y almacenamiento
 deploy/raspberry/    Instalador y servicios systemd para la Raspberry Pi
 tests/               Pruebas (pytest)
