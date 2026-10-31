@@ -51,6 +51,36 @@ CREATE TABLE IF NOT EXISTS events (
     level TEXT NOT NULL,           -- info / aviso / error
     message TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS strategies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created TEXT NOT NULL,
+    status TEXT NOT NULL,          -- activa / candidata / retirada / descartada
+    origin TEXT,                   -- inicial / IA / optimizador / manual
+    params TEXT NOT NULL,          -- JSON
+    playbook TEXT NOT NULL,
+    lessons TEXT,                  -- JSON: lista de lecciones
+    changelog TEXT,
+    diagnosis TEXT,
+    metrics TEXT,                  -- JSON: backtest y comparación
+    recommended INTEGER
+);
+CREATE TABLE IF NOT EXISTS decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    action TEXT NOT NULL,          -- comprar / vender / mantener
+    confidence REAL,
+    score REAL,                    -- puntuación de la estrategia
+    price REAL NOT NULL,
+    bench_price REAL,
+    strategy_id INTEGER,
+    proposal_id INTEGER,
+    features TEXT,                 -- JSON del estudio de mercado
+    reason TEXT,
+    fwd_return REAL,               -- se rellena al evaluar
+    bench_return REAL,
+    evaluated TEXT
+);
 CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -142,6 +172,68 @@ class Store:
         d = dict(row)
         d["checks"] = json.loads(d.get("checks") or "[]")
         return d
+
+    # ---------------------------------------------------------- estrategias
+    def add_strategy(self, status, origin, params: dict, playbook: str, lessons=None, changelog="", diagnosis="", metrics=None, recommended=None) -> int:
+        with self.conn() as c:
+            cur = c.execute(
+                "INSERT INTO strategies(created,status,origin,params,playbook,lessons,changelog,diagnosis,metrics,recommended) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (now_iso(), status, origin, json.dumps(params), playbook, json.dumps(lessons or [], ensure_ascii=False), changelog, diagnosis,
+                 json.dumps(metrics or {}, ensure_ascii=False, default=str), None if recommended is None else int(recommended)),
+            )
+            return int(cur.lastrowid)
+
+    def strategies(self, status: str | None = None) -> list[dict]:
+        with self.conn() as c:
+            q = "SELECT * FROM strategies" + (" WHERE status=?" if status else "") + " ORDER BY id DESC"
+            rows = c.execute(q, (status,) if status else ())
+            return [self._strat(r) for r in rows]
+
+    def strategy(self, sid: int) -> dict | None:
+        with self.conn() as c:
+            row = c.execute("SELECT * FROM strategies WHERE id=?", (sid,)).fetchone()
+        return self._strat(row) if row else None
+
+    def set_strategy_status(self, sid: int, status: str) -> None:
+        with self.conn() as c:
+            c.execute("UPDATE strategies SET status=? WHERE id=?", (status, sid))
+
+    def activate_strategy(self, sid: int) -> None:
+        """Deja una sola estrategia activa (la anterior pasa a retirada)."""
+        with self.conn() as c:
+            c.execute("UPDATE strategies SET status='retirada' WHERE status='activa'")
+            c.execute("UPDATE strategies SET status='activa' WHERE id=?", (sid,))
+
+    @staticmethod
+    def _strat(row) -> dict:
+        d = dict(row)
+        for k in ("params", "lessons", "metrics"):
+            d[k] = json.loads(d.get(k) or ("[]" if k == "lessons" else "{}"))
+        return d
+
+    # ---------------------------------------------------------- diario de decisiones
+    def add_decision(self, ticker, action, price, confidence=None, score=None, bench_price=None, strategy_id=None, proposal_id=None, features=None, reason="") -> int:
+        with self.conn() as c:
+            cur = c.execute(
+                "INSERT INTO decisions(ts,ticker,action,confidence,score,price,bench_price,strategy_id,proposal_id,features,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (now_iso(), ticker, action, confidence, score, price, bench_price, strategy_id, proposal_id, json.dumps(features or {}, ensure_ascii=False, default=str), reason),
+            )
+            return int(cur.lastrowid)
+
+    def decisions(self, evaluated: bool | None = None, limit: int = 1000) -> list[dict]:
+        with self.conn() as c:
+            cond = "" if evaluated is None else (" WHERE evaluated IS NOT NULL" if evaluated else " WHERE evaluated IS NULL")
+            rows = c.execute(f"SELECT * FROM decisions{cond} ORDER BY id DESC LIMIT ?", (limit,))
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["features"] = json.loads(d.get("features") or "{}")
+                out.append(d)
+            return out
+
+    def set_outcome(self, did: int, fwd_return: float, bench_return: float | None) -> None:
+        with self.conn() as c:
+            c.execute("UPDATE decisions SET fwd_return=?, bench_return=?, evaluated=? WHERE id=?", (fwd_return, bench_return, now_iso(), did))
 
     # ---------------------------------------------------------- operaciones y valor
     def add_trade(self, ticker, side, units, price, amount, fee=0.0, proposal_id=None, origin="aprobada") -> None:

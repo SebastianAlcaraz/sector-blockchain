@@ -36,6 +36,8 @@ class AssetSnapshot:
     en_cartera_unidades: float = 0.0
     en_cartera_peso: float = 0.0
     en_cartera_ganancia: float | None = None
+    dias_en_cartera: int | None = None
+    puntuacion_estrategia: float | None = None
 
     def as_dict(self) -> dict:
         d = asdict(self)

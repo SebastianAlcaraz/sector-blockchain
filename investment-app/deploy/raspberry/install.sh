@@ -34,12 +34,12 @@ if ! grep -q '^APP_PASSWORD=.\+' "$ENV_FILE"; then
 fi
 
 echo "==> Instalando los servicios"
-for unit in asistente-web.service asistente-bot.service asistente-bot.timer; do
+for unit in asistente-web.service asistente-bot.service asistente-bot.timer asistente-review.service asistente-review.timer; do
   sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@USER@|$USER_NAME|g" -e "s|@ENV_FILE@|$ENV_FILE|g" \
     "$APP_DIR/deploy/raspberry/$unit" | sudo tee "/etc/systemd/system/$unit" > /dev/null
 done
 sudo systemctl daemon-reload
-sudo systemctl enable --now asistente-web.service asistente-bot.timer
+sudo systemctl enable --now asistente-web.service asistente-bot.timer asistente-review.timer
 
 IP="$(hostname -I | awk '{print $1}')"
 cat <<MSG
@@ -49,6 +49,7 @@ Listo.
   - Claves:         nano $ENV_FILE    y después: sudo systemctl restart asistente-web
   - Próximos ciclos: systemctl list-timers asistente-bot.timer
   - Ciclo manual:   sudo systemctl start asistente-bot.service
+  - Revisión manual de la estrategia: sudo systemctl start asistente-review.service
   - Registro:       journalctl -u asistente-bot.service -n 50
 
 El bot empieza en modo SIMULACIÓN. Revisa la configuración en la sección "Bot de inversión".

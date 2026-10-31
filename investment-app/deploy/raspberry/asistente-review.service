@@ -1,0 +1,12 @@
+[Unit]
+Description=Asistente de inversión (revisión semanal de la estrategia)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@ENV_FILE@
+ExecStart=@APP_DIR@/.venv/bin/python -m invest.trading --revisar
+TimeoutStartSec=1800

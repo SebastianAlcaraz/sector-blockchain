@@ -602,6 +602,134 @@ def local_time(iso: str | None) -> str:
 STATUS_ICON = {"pendiente": "🕒", "ejecutada": "✅", "rechazada": "✖️", "caducada": "⌛", "fallida": "⚠️", "descartada": "🚫", "aprobada": "…"}
 
 
+PARAM_LABELS = {
+    "peso_tendencia": "Peso de la tendencia",
+    "peso_impulso": "Peso del impulso (MACD)",
+    "peso_rsi": "Peso del RSI",
+    "peso_rendimiento_3m": "Peso del rendimiento a 3 meses",
+    "peso_sentimiento": "Peso de las noticias",
+    "umbral_compra": "Umbral de compra",
+    "umbral_venta": "Umbral de venta",
+    "rsi_sobrecompra": "RSI de sobrecompra",
+    "rsi_sobreventa": "RSI de sobreventa",
+    "tamano_pct": "Tamaño de compra (%)",
+    "dias_minimos": "Días mínimos en cartera",
+}
+
+
+def strategy_metrics_table(metrics: dict) -> pd.DataFrame:
+    rows = []
+    for key, name in (("actual", "Estrategia actual"), ("candidata", "Candidata")):
+        m = metrics.get(key)
+        if not m:
+            continue
+        for tramo, tname in (("dentro", "Datos de ajuste"), ("fuera", "Datos nuevos (validación)")):
+            r = m[tramo]
+            rows.append({"Estrategia": name, "Tramo": tname, "Rentabilidad": r["rentabilidad"], "Índice de referencia": r["referencia"],
+                         "Peor caída": r["max_caida"], "Sharpe": r["sharpe"], "Operaciones": r["operaciones"], "Ventas con ganancia": r["aciertos"]})
+    return pd.DataFrame(rows)
+
+
+def strategy_section(engine: Engine) -> None:
+    from invest.trading import learning
+    from invest.trading.strategy import StrategyParams
+
+    store = engine.store
+    st.subheader("Estrategia y aprendizaje")
+    st.caption(
+        "Cada semana el bot evalúa sus decisiones pasadas (¿la compra batió al índice? ¿la venta evitó una caída?), "
+        "propone una estrategia mejorada y la prueba con datos que no usó para crearla. Tú decides si la adopta. "
+        "Los límites de riesgo nunca forman parte de la estrategia."
+    )
+    active = learning.active_strategy(engine)
+    candidates = store.strategies("candidata")
+    stats = learning.decision_stats(store.decisions(limit=500))
+
+    c = st.columns(4)
+    c[0].metric("Estrategia activa", f"v{active['id']}", active["origin"], delta_color="off")
+    c[1].metric("Decisiones evaluadas", stats["evaluadas"], help=f"Se juzgan a {engine.cfg.horizonte_evaluacion_dias} días.")
+    buy = stats["por_accion"].get("comprar")
+    c[2].metric("Compras acertadas", pct(buy["aciertos"]) if buy else "—", help="Compras cuyo activo batió al índice de referencia después.")
+    sell = stats["por_accion"].get("vender")
+    c[3].metric("Ventas acertadas", pct(sell["aciertos"]) if sell else "—", help="Ventas cuyo activo lo hizo peor que el índice después.")
+    if stats["evaluadas"] < 30:
+        st.caption(f"Con {stats['evaluadas']} decisiones evaluadas las conclusiones son poco fiables; hacen falta al menos unas 30.")
+
+    last = store.get("last_review")
+    cost = " Con el asesor IA usa Claude (pequeño coste)." if engine.cfg.asesor == "claude" else ""
+    if st.button("🧠 Revisar la estrategia ahora", help="Normalmente se hace cada domingo de forma automática." + cost):
+        with st.spinner("Evaluando decisiones y probando estrategias con datos históricos…"):
+            try:
+                r = learning.review(engine)
+                (st.success if r["recomendada"] else st.warning)(
+                    f"Candidata v{r['candidata']} {'recomendada' if r['recomendada'] else 'no recomendada'}: " + " ".join(r["motivos"]))
+            except Exception as exc:
+                st.error(f"La revisión falló: {exc}")
+        candidates = store.strategies("candidata")
+    elif last:
+        st.caption(f"Última revisión: {local_time(last['ts'])}.")
+
+    for cand in candidates:
+        with st.container(border=True):
+            badge = "✅ Recomendada" if cand["recommended"] else "⚠️ No recomendada"
+            st.markdown(f"**Candidata v{cand['id']}** ({cand['origin']}) · {badge}")
+            if cand["diagnosis"]:
+                st.markdown(f"**Diagnóstico:** {cand['diagnosis']}")
+            if cand["changelog"]:
+                st.markdown(f"**Cambios:** {cand['changelog']}")
+            for m in cand["metrics"].get("motivos", []):
+                st.markdown(f"- {m}")
+            table = strategy_metrics_table(cand["metrics"])
+            if not table.empty:
+                st.dataframe(table, hide_index=True, use_container_width=True, column_config={
+                    k: st.column_config.NumberColumn(format="percent") for k in ("Rentabilidad", "Índice de referencia", "Peor caída", "Ventas con ganancia")
+                } | {"Sharpe": st.column_config.NumberColumn(format="%.2f")})
+            cur_p, new_p = active["params"], cand["params"]
+            diff = [{"Parámetro": PARAM_LABELS.get(k, k), "Actual": cur_p.get(k), "Candidata": v} for k, v in new_p.items() if cur_p.get(k) != v]
+            if diff:
+                st.dataframe(pd.DataFrame(diff), hide_index=True, use_container_width=True)
+            if cand["playbook"] != active["playbook"]:
+                with st.expander("Manual propuesto"):
+                    st.markdown(cand["playbook"])
+            if cand["lessons"]:
+                st.markdown("**Lecciones:** " + " · ".join(cand["lessons"]))
+            a, b, _ = st.columns([1, 1, 3])
+            force = True
+            if not cand["recommended"]:
+                force = st.checkbox("Adoptarla aunque no mejore en la validación", key=f"force{cand['id']}")
+            if a.button("Adoptar", key=f"adopt{cand['id']}", type="primary", disabled=not force):
+                learning.adopt(engine, cand["id"])
+                st.rerun()
+            if b.button("Descartar", key=f"discard{cand['id']}"):
+                store.set_strategy_status(cand["id"], "descartada")
+                store.log("info", f"Candidata v{cand['id']} descartada.")
+                st.rerun()
+
+    with st.expander(f"Estrategia activa v{active['id']}: parámetros, manual y lecciones"):
+        p = StrategyParams.from_dict(active["params"]).as_dict()
+        st.dataframe(pd.DataFrame([{"Parámetro": PARAM_LABELS.get(k, k), "Valor": v} for k, v in p.items()]), hide_index=True, use_container_width=True)
+        st.markdown("**Manual**")
+        st.markdown(active["playbook"])
+        if active["lessons"]:
+            st.markdown("**Lecciones aprendidas**")
+            for l in active["lessons"]:
+                st.markdown(f"- {l}")
+        if stats["por_puntuacion"]:
+            st.markdown("**¿Funciona la puntuación?** Rendimiento posterior frente al índice según la puntuación que tenía el activo:")
+            st.dataframe(pd.DataFrame([{"Puntuación": k, "Decisiones": v["n"], "Exceso medio posterior": v["exceso_medio_posterior"]} for k, v in stats["por_puntuacion"].items()]),
+                         hide_index=True, use_container_width=True, column_config={"Exceso medio posterior": st.column_config.NumberColumn(format="percent")})
+
+    history = [s for s in store.strategies() if s["status"] in ("retirada", "descartada")]
+    if history:
+        with st.expander("Versiones anteriores"):
+            for s in history:
+                cols = st.columns([4, 1])
+                cols[0].markdown(f"**v{s['id']}** · {s['status']} · {s['origin']} · {local_time(s['created'])} — {s['changelog'] or ''}")
+                if cols[1].button("Volver a esta", key=f"rb{s['id']}"):
+                    learning.adopt(engine, s["id"])
+                    st.rerun()
+
+
 def page_bot() -> None:
     st.header("Bot de inversión")
     engine = Engine()
@@ -739,6 +867,8 @@ def page_bot() -> None:
         for ev in store.events(50):
             icon = {"error": "🔴", "aviso": "🟠"}.get(ev["level"], "⚪")
             st.markdown(f"{icon} `{local_time(ev['ts'])}` {ev['message']}")
+
+    strategy_section(engine)
 
     # ---------------------------------------------------------- configuración
     with st.expander("⚙️ Configuración del bot"):

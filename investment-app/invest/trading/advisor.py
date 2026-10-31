@@ -12,6 +12,7 @@ from typing import Literal
 
 from .config import BotConfig
 from .market import AssetSnapshot
+from .strategy import DEFAULT_PLAYBOOK, StrategyParams
 
 
 @dataclass
@@ -33,24 +34,28 @@ class Advice:
 
 
 class RuleAdvisor:
-    name = "Reglas técnicas"
+    """Aplica directamente la parte numérica de la estrategia activa (sin IA)."""
 
-    def advise(self, snaps: list[AssetSnapshot], cfg: BotConfig, cash_pct: float) -> Advice:
+    name = "Reglas de la estrategia"
+
+    def advise(self, snaps: list[AssetSnapshot], cfg: BotConfig, cash_pct: float, strategy: dict | None = None) -> Advice:
+        p = StrategyParams.from_dict((strategy or {}).get("params", {}))
         out = []
         for s in snaps:
-            sent = s.sentimiento if s.sentimiento is not None else 0.0
+            sc = s.puntuacion_estrategia if s.puntuacion_estrategia is not None else 0.0
             held = s.en_cartera_unidades > 0
-            if not held and s.lectura_tecnica >= 50 and sent >= -0.1 and (s.rsi or 50) < 70:
-                out.append(Decision(s.ticker, "comprar", cfg.max_operacion_pct, 0, 0.65 + min(s.lectura_tecnica, 100) / 400,
-                                    f"Tendencia alcista (lectura técnica {s.lectura_tecnica:+d}) y sentimiento {s.sentimiento_veredicto.lower()}.",
+            conf = round(min(0.6 + 0.4 * abs(sc), 1.0), 3)
+            if not held and sc >= p.umbral_compra:
+                out.append(Decision(s.ticker, "comprar", p.tamano_pct, 0, conf,
+                                    f"Puntuación de la estrategia {sc:+.2f} (umbral de compra {p.umbral_compra:+.2f}); técnico {s.veredicto_tecnico.lower()}, noticias {s.sentimiento_veredicto.lower()}.",
                                     "Un cambio de tendencia o una mala noticia pueden revertir la subida."))
-            elif held and (s.lectura_tecnica <= -50 or sent <= -0.4):
-                out.append(Decision(s.ticker, "vender", 0, 1.0, 0.7,
-                                    f"Deterioro: lectura técnica {s.lectura_tecnica:+d}, sentimiento {s.sentimiento_veredicto.lower()}.",
+            elif held and sc <= p.umbral_venta and (s.dias_en_cartera or 0) >= p.dias_minimos:
+                out.append(Decision(s.ticker, "vender", 0, 1.0, conf,
+                                    f"Puntuación de la estrategia {sc:+.2f} por debajo del umbral de venta ({p.umbral_venta:+.2f}).",
                                     "Podría rebotar después de vender."))
             else:
-                out.append(Decision(s.ticker, "mantener", motivo="Sin señal clara."))
-        return Advice(out, "Propuestas generadas con reglas técnicas fijas (sin IA).", self.name)
+                out.append(Decision(s.ticker, "mantener", motivo=f"Puntuación {sc:+.2f}: sin señal."))
+        return Advice(out, "Propuestas generadas con los parámetros de la estrategia activa (sin IA).", self.name)
 
 
 SYSTEM_PROMPT = """Eres el analista de un bot de inversión personal con horizonte de MEDIO PLAZO (días a semanas).
@@ -63,6 +68,7 @@ Cómo trabajar:
 - Las noticias simuladas o escasas pesan poco. Si los datos no bastan, dilo y mantén.
 - Sé honesto con la confianza (0 a 1): 0,8 o más solo con varias señales coherentes.
 - El tamaño de compra es un % de la cartera total; nunca superes el máximo indicado. Para vender, indica qué fracción de la posición.
+- Sigue el manual de la estrategia y las lecciones aprendidas que recibes; son el resultado de revisar decisiones anteriores.
 - Escribe los motivos y riesgos en español, claros y breves, para una persona no experta.
 
 Un sistema de control de riesgo independiente revisará cada propuesta y la persona dueña de la cartera tendrá que aprobarla."""
@@ -77,7 +83,7 @@ class ClaudeAdvisor:
 
         self.client = client or anthropic.Anthropic()
 
-    def advise(self, snaps: list[AssetSnapshot], cfg: BotConfig, cash_pct: float) -> Advice:
+    def advise(self, snaps: list[AssetSnapshot], cfg: BotConfig, cash_pct: float, strategy: dict | None = None) -> Advice:
         from pydantic import BaseModel, Field
 
         class Item(BaseModel):
@@ -100,6 +106,12 @@ class ClaudeAdvisor:
                 "liquidez_minima_pct": cfg.min_liquidez_pct,
                 "stop_loss_pct": cfg.stop_loss_pct,
                 "apalancamiento": "no permitido",
+            },
+            "estrategia": {
+                "manual": (strategy or {}).get("playbook", DEFAULT_PLAYBOOK),
+                "lecciones_aprendidas": (strategy or {}).get("lessons", []),
+                "umbrales": {k: v for k, v in (strategy or {}).get("params", {}).items() if k.startswith("umbral")},
+                "nota": "puntuacion_estrategia (-1 a 1) es la señal numérica de la estrategia para cada activo.",
             },
             "cartera": {"liquidez_pct": round(cash_pct, 2)},
             "activos": [s.as_dict() for s in snaps],

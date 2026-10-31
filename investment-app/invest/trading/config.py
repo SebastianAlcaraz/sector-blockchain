@@ -38,6 +38,9 @@ class BotConfig:
     stop_loss_automatico: bool = True  # vende sin esperar aprobación si salta el stop-loss
     confianza_minima: float = 0.6
 
+    # Aprendizaje
+    horizonte_evaluacion_dias: int = 14  # a cuántos días se juzga si una decisión acertó
+
     @classmethod
     def load(cls, path: Path) -> "BotConfig":
         if not path.exists():

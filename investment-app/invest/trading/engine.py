@@ -15,8 +15,10 @@ from .advisor import Advice, ClaudeAdvisor, RuleAdvisor
 from .broker import BrokerError, EToroDemoBroker, PaperBroker
 from .config import BotConfig
 from .market import snapshot
+from .learning import active_strategy, evaluate_decisions
 from .risk import RiskContext, buying_blocked, check_buy, check_sell, stop_loss_hits
 from .store import Store
+from .strategy import StrategyParams, score_snapshot
 
 
 def default_dir() -> Path:
@@ -130,6 +132,9 @@ class Engine:
             self.store.set_paused(True, week_block)
             return {"ok": True, "paused": True}
 
+        strategy = active_strategy(self)
+        params = StrategyParams.from_dict(strategy["params"])
+        held_since = self._held_since()
         snaps = []
         for t in cfg.lista_activos:
             if t not in closes or closes[t].dropna().size < 30:
@@ -150,10 +155,18 @@ class Engine:
                 s.en_cartera_unidades = pos.units
                 s.en_cartera_peso = round(100 * pos.units * prices[t] / ctx.equity, 2)
                 s.en_cartera_ganancia = prices[t] / pos.avg_price - 1
+                if t in held_since:
+                    s.dias_en_cartera = (datetime.now(timezone.utc) - datetime.fromisoformat(held_since[t])).days
+            s.puntuacion_estrategia = score_snapshot(s, params)
             snaps.append(s)
 
-        advice: Advice = self.advisor.advise(snaps, cfg, 100 * ctx.cash / ctx.equity if ctx.equity else 100)
+        advice: Advice = self.advisor.advise(snaps, cfg, 100 * ctx.cash / ctx.equity if ctx.equity else 100, strategy)
         created = self._proposals_from(advice, ctx)
+        self._journal(advice, snaps, prices, strategy["id"])
+        try:
+            evaluate_decisions(self)
+        except Exception as exc:
+            self.store.log("aviso", f"No se pudieron evaluar decisiones pasadas: {exc}")
         self.store.set("last_cycle", {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "resumen": advice.resumen, "asesor": advice.asesor, "propuestas": created})
         self.store.log("info", f"Análisis completado con {advice.asesor}: {created} propuesta(s) nueva(s).")
 
@@ -161,6 +174,30 @@ class Engine:
             for p in self.store.proposals("pendiente"):
                 self.approve(p["id"], origin="automatica")
         return {"ok": True, "propuestas": created, "resumen": advice.resumen}
+
+    def _held_since(self) -> dict[str, str]:
+        """Fecha de la última compra de cada activo (para saber cuántos días lleva en cartera)."""
+        out: dict[str, str] = {}
+        for t in reversed(self.store.trades()):
+            if t["side"] == "comprar":
+                out[t["ticker"]] = t["ts"]
+            else:
+                out.pop(t["ticker"], None)
+        return out
+
+    def _journal(self, advice: Advice, snaps, prices: dict[str, float], strategy_id: int) -> None:
+        """Guarda TODAS las decisiones (también mantener) para evaluarlas más adelante."""
+        by_ticker = {s.ticker: s for s in snaps}
+        recent = {(p["ticker"], p["side"]): p["id"] for p in self.store.proposals(limit=50)}
+        bench = prices.get(self.cfg.referencia)
+        for d in advice.decisions:
+            s = by_ticker.get(d.ticker)
+            if not s:
+                continue
+            self.store.add_decision(
+                d.ticker, d.accion, s.precio, d.confianza, s.puntuacion_estrategia, bench, strategy_id,
+                recent.get((d.ticker, d.accion)) if d.accion != "mantener" else None, s.as_dict(), d.motivo,
+            )
 
     def _handle_stop_losses(self, prices: dict[str, float]) -> None:
         if isinstance(self.broker, EToroDemoBroker):

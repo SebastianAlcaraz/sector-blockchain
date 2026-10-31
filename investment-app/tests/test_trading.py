@@ -34,7 +34,7 @@ class FixedAdvisor:
     def __init__(self, decisions):
         self.decisions = decisions
 
-    def advise(self, snaps, cfg, cash_pct):
+    def advise(self, snaps, cfg, cash_pct, strategy=None):
         return Advice(list(self.decisions), "Resumen de prueba", self.name)
 
 
@@ -175,8 +175,15 @@ def test_rule_advisor_and_snapshot():
     close = pd.Series(np.linspace(50, 100, 300) + np.sin(np.arange(300)), index=pd.bdate_range("2025-01-01", periods=300))
     s = snapshot("AAA", close)
     s.sentimiento, s.sentimiento_veredicto = 0.3, "Alcista"
-    adv = RuleAdvisor().advise([s], BotConfig(), 100)
+    from invest.trading.strategy import StrategyParams, score_snapshot
+
+    s.puntuacion_estrategia = score_snapshot(s, StrategyParams())
+    assert s.puntuacion_estrategia > 0.3
+    loose = {"params": {**StrategyParams().as_dict(), "umbral_compra": 0.3}}
+    adv = RuleAdvisor().advise([s], BotConfig(), 100, loose)
     assert adv.decisions[0].accion == "comprar"
+    strict = {"params": {**StrategyParams().as_dict(), "umbral_compra": 0.9}}
+    assert RuleAdvisor().advise([s], BotConfig(), 100, strict).decisions[0].accion == "mantener"
 
 
 def test_config_validation(tmp_path):

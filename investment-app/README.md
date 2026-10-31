@@ -78,7 +78,32 @@ Temporizador (cada ~4 h) → estudio de mercado → la IA propone → control de
 - La web compara el resultado del bot con comprar y mantener el índice de referencia (SPY por defecto).
   Si tras semanas de simulación el bot no lo supera, no merece la pena seguir.
 
-Ejecutar un ciclo a mano: `python -m invest.trading` (o `python -m invest.trading --estado`).
+### Aprendizaje: la estrategia se crea y se corrige
+
+La estrategia tiene dos partes:
+- **Parámetros numéricos**: cuánto pesa cada señal (tendencia, impulso, RSI, rendimiento a 3 meses y noticias), los umbrales de compra
+  y venta, el tamaño de cada compra y los días mínimos en cartera. Se pueden probar con datos históricos.
+- **Manual en texto**: los principios que la IA sigue al analizar, más las lecciones aprendidas.
+
+Cada domingo (o con el botón *Revisar la estrategia ahora*):
+1. **Evalúa** cada decisión pasada, también las de mantener, las rechazadas y las descartadas, a 14 días. Una compra acierta
+   si el activo batió al índice de referencia; una venta acierta si el activo lo hizo peor que el índice.
+2. **Diagnostica** qué tipos de decisión y qué niveles de puntuación funcionaron.
+3. **Propone** una estrategia candidata:
+   - con *IA (Claude)*: Claude revisa los datos y cambia parámetros, manual y lecciones;
+   - sin IA: un optimizador prueba variaciones de los parámetros.
+4. **Valida** la candidata con datos históricos que no se usaron para ajustarla (el 30 % más reciente). Se recomienda
+   solo si rinde igual o mejor que la actual, no aumenta la peor caída y hace suficientes operaciones. También avisa si
+   parece sobreajustada.
+5. **Tú decides** si se adopta. Puedes volver a cualquier versión anterior.
+
+Los parámetros tienen rangos máximos, y los límites de riesgo no forman parte de la estrategia: el aprendizaje no puede tocarlos.
+Las pruebas históricas solo usan señales técnicas, porque no hay noticias históricas disponibles.
+
+Ejecutar a mano:
+- un ciclo: `python -m invest.trading`;
+- el estado: `python -m invest.trading --estado`;
+- la revisión de la estrategia: `python -m invest.trading --revisar`.
 
 ## Instalación en una Raspberry Pi
 
@@ -96,7 +121,8 @@ El instalador:
 - crea el entorno de Python;
 - genera una contraseña para la web;
 - deja la web funcionando en `http://<ip-de-la-raspberry>:8501`;
-- programa el bot cada 4 horas en días laborables y una vez al día los fines de semana.
+- programa el bot cada 4 horas en días laborables y una vez al día los fines de semana;
+- programa la revisión de la estrategia cada domingo.
 
 Seguridad:
 - No abras el puerto 8501 en el router. Para entrar desde fuera de casa usa una VPN como [Tailscale](https://tailscale.com).
