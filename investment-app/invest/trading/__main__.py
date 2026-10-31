@@ -1,4 +1,4 @@
-"""Ejecuta un ciclo del bot desde la línea de comandos (lo usa el temporizador de la Raspberry).
+"""Ejecuta un ciclo del bot desde la línea de comandos (lo usa el temporizador del equipo).
 
     python -m invest.trading            # un ciclo
     python -m invest.trading --estado   # muestra el estado sin analizar

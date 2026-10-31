@@ -142,7 +142,7 @@ class ClaudeCodeBackend:
         try:
             proc = self.runner(cmd, input=prompt, capture_output=True, text=True, timeout=self.timeout, cwd=str(self.workdir), env=self.environment())
         except FileNotFoundError as exc:
-            raise LLMError("No se encontró el programa `claude`. Instala Claude Code en la Raspberry (ver README).") from exc
+            raise LLMError("No se encontró el programa `claude`. Instala Claude Code en el equipo del bot (ver README).") from exc
         except subprocess.TimeoutExpired as exc:
             raise LLMError(f"Claude Code tardó más de {self.timeout:.0f} s en responder.") from exc
 

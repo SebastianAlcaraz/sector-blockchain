@@ -762,7 +762,7 @@ def page_bot() -> None:
             st.rerun()
     with c3:
         cost_note = " Usa la IA de Claude: tiene un pequeño coste." if cfg.asesor == "claude" else ""
-        if st.button("🔎 Analizar el mercado ahora", help="Normalmente lo hace el temporizador de la Raspberry." + cost_note):
+        if st.button("🔎 Analizar el mercado ahora", help="Normalmente lo hace el temporizador del equipo (mini PC o Raspberry)." + cost_note):
             with st.spinner("Estudiando el mercado…"):
                 result = engine.run_cycle()
             if result.get("ok"):

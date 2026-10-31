@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Instala el Asistente de inversión en una Raspberry Pi (Raspberry Pi OS de 64 bits).
-# Uso:  bash deploy/raspberry/install.sh
+# Instala el Asistente de inversión en un mini PC (Ubuntu Server / Debian) o una Raspberry Pi
+# (Raspberry Pi OS de 64 bits). Guía paso a paso: deploy/linux/GUIA-MINIPC.md
+# Uso:  bash deploy/linux/install.sh
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -9,12 +10,21 @@ CONF_DIR="$HOME/.config/asistente-inversion"
 ENV_FILE="$CONF_DIR/env"
 
 if [ "$(uname -m)" != "aarch64" ] && [ "$(uname -m)" != "x86_64" ]; then
-  echo "Aviso: se recomienda Raspberry Pi OS de 64 bits (detectado: $(uname -m))."
+  echo "Aviso: hace falta un sistema de 64 bits (detectado: $(uname -m))."
+fi
+if ! command -v apt-get > /dev/null; then
+  echo "Este instalador es para Ubuntu, Debian o Raspberry Pi OS (usa apt)." >&2
+  exit 1
 fi
 
 echo "==> Instalando dependencias del sistema"
 sudo apt-get update
-sudo apt-get install -y python3-venv python3-pip
+sudo apt-get install -y python3-venv python3-pip git curl
+
+if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+  echo "Hace falta Python 3.10 o superior (tienes $(python3 --version)). Usa Ubuntu 24.04 LTS o Debian 12 o posterior." >&2
+  exit 1
+fi
 
 echo "==> Creando el entorno de Python en $APP_DIR/.venv"
 python3 -m venv "$APP_DIR/.venv"
@@ -24,7 +34,7 @@ python3 -m venv "$APP_DIR/.venv"
 echo "==> Preparando el archivo de claves en $ENV_FILE"
 mkdir -p "$CONF_DIR"
 if [ ! -f "$ENV_FILE" ]; then
-  cp "$APP_DIR/deploy/raspberry/env.example" "$ENV_FILE"
+  cp "$APP_DIR/deploy/linux/env.example" "$ENV_FILE"
 fi
 chmod 600 "$ENV_FILE"
 if ! grep -q '^APP_PASSWORD=.\+' "$ENV_FILE"; then
@@ -46,10 +56,11 @@ fi
 echo "==> Instalando los servicios"
 for unit in asistente-web.service asistente-bot.service asistente-bot.timer asistente-review.service asistente-review.timer; do
   sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@USER@|$USER_NAME|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@HOME@|$HOME|g" \
-    "$APP_DIR/deploy/raspberry/$unit" | sudo tee "/etc/systemd/system/$unit" > /dev/null
+    "$APP_DIR/deploy/linux/$unit" | sudo tee "/etc/systemd/system/$unit" > /dev/null
 done
 sudo systemctl daemon-reload
-sudo systemctl enable --now asistente-web.service asistente-bot.timer asistente-review.timer
+sudo systemctl enable asistente-web.service asistente-bot.timer asistente-review.timer
+sudo systemctl restart asistente-web.service asistente-bot.timer asistente-review.timer  # aplica también las actualizaciones
 
 IP="$(hostname -I | awk '{print $1}')"
 cat <<MSG

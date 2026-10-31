@@ -116,7 +116,7 @@ El bot puede usar Claude por dos vías. Se elige en *Bot de inversión → Confi
 | Coste | Sin coste extra: gasta los límites de tu plan (compartidos con tu uso de Claude) | Pago por uso |
 | Si se agota | Ese ciclo usa las reglas de la estrategia (respaldo) | Igual, si se queda sin saldo |
 
-Configurar la suscripción en la Raspberry:
+Configurar la suscripción en el equipo del bot:
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash     # instala Claude Code (o acepta en el instalador)
 ~/.local/bin/claude setup-token                     # abre el inicio de sesión y muestra un token (dura un año)
@@ -133,14 +133,18 @@ Detalles:
 - Anthropic indica que los límites de los planes suponen un "uso normal e individual" de Claude Code. Es un uso personal,
   pero si quieres total seguridad sobre las condiciones, usa la API.
 
-## Instalación en una Raspberry Pi
+## Instalación en un mini PC o una Raspberry Pi
 
-Requisitos: Raspberry Pi 4 (4 GB) o Pi 5 con **Raspberry Pi OS de 64 bits**; mejor con disco SSD que con tarjeta SD.
+Equipos recomendados:
+- **Mini PC** (recomendado): Intel N100/N150, 16 GB de RAM, SSD, con **Ubuntu Server 24.04 LTS** o Debian 12+.
+  Guía paso a paso desde cero: [`deploy/linux/GUIA-MINIPC.md`](deploy/linux/GUIA-MINIPC.md).
+- **Raspberry Pi 5** de 8 GB (o Pi 4 de 4 GB como mínimo) con **Raspberry Pi OS de 64 bits** y disco SSD (mejor que tarjeta SD).
 
 ```bash
 sudo timedatectl set-timezone Europe/Madrid      # tu zona horaria
-git clone <este repositorio> && cd sector-blockchain/investment-app
-bash deploy/raspberry/install.sh
+git clone -b claude/investment-app-sl48gt https://github.com/sebastianalcaraz/sector-blockchain.git
+cd sector-blockchain/investment-app
+bash deploy/linux/install.sh
 nano ~/.config/asistente-inversion/env           # añade CLAUDE_CODE_OAUTH_TOKEN o ANTHROPIC_API_KEY (y las de eToro si las tienes)
 sudo systemctl restart asistente-web
 ```
@@ -148,7 +152,7 @@ sudo systemctl restart asistente-web
 El instalador:
 - crea el entorno de Python;
 - genera una contraseña para la web;
-- deja la web funcionando en `http://<ip-de-la-raspberry>:8501`;
+- deja la web funcionando en `http://<ip-del-equipo>:8501`;
 - programa el bot cada 4 horas en días laborables y una vez al día los fines de semana;
 - programa la revisión de la estrategia cada domingo.
 
@@ -175,7 +179,7 @@ invest/news.py       Noticias (Yahoo, demo) y cliente experimental de eToro
 invest/sentiment.py  Sentimiento: diccionario financiero y análisis con Claude
 invest/llm.py        Conexión con Claude: API o suscripción (Claude Code), intercambiables
 invest/trading/      Bot: estudio de mercado, asesores, riesgo, brókers, motor y almacenamiento
-deploy/raspberry/    Instalador y servicios systemd para la Raspberry Pi
+deploy/linux/        Instalador, guía del mini PC y servicios systemd (mini PC o Raspberry Pi)
 tests/               Pruebas (pytest)
 ```
 
