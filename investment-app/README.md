@@ -154,6 +154,18 @@ Detalles:
 - Anthropic indica que los límites de los planes suponen un "uso normal e individual" de Claude Code. Es un uso personal,
   pero si quieres total seguridad sobre las condiciones, usa la API.
 
+## Instalación en Windows (para empezar en tu PC)
+
+Guía paso a paso: [`deploy/windows/GUIA-WINDOWS.md`](deploy/windows/GUIA-WINDOWS.md).
+
+```powershell
+winget install -e --id Python.Python.3.12        # si no tienes Python 3.10+
+cd sector-blockchain\investment-app
+powershell -ExecutionPolicy Bypass -File deploy\windows\instalar.ps1
+```
+
+Las claves van en `%APPDATA%\AsistenteInversion\env`. El bot y la revisión semanal se programan como tareas de Windows.
+
 ## Instalación en un mini PC o una Raspberry Pi
 
 Equipos recomendados:
@@ -201,6 +213,8 @@ invest/sentiment.py  Sentimiento: diccionario financiero y análisis con Claude
 invest/llm.py        Conexión con Claude: API o suscripción (Claude Code), intercambiables
 invest/trading/      Bot: estudio de mercado, asesores, riesgo, brókers, motor y almacenamiento
 deploy/linux/        Instalador, guía del mini PC y servicios systemd (mini PC o Raspberry Pi)
+deploy/windows/      Instalador de Windows (PowerShell), tareas programadas y guía
+invest/settings.py   Archivo de claves del equipo (Windows y Linux)
 tests/               Pruebas (pytest)
 ```
 
