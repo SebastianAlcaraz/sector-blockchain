@@ -6,6 +6,10 @@ Ejecutar con:  streamlit run app.py
 import os
 from pathlib import Path
 
+from invest.settings import load_env
+
+load_env()  # claves del archivo del equipo (Windows: %APPDATA%\AsistenteInversion\env)
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st

@@ -8,6 +8,7 @@ import argparse
 import json
 import sys
 
+from ..settings import load_env
 from .engine import Engine
 
 
@@ -16,6 +17,7 @@ def main() -> int:
     parser.add_argument("--estado", action="store_true", help="Muestra el estado y sale")
     parser.add_argument("--revisar", action="store_true", help="Revisión semanal: evalúa decisiones y propone una estrategia mejorada")
     args = parser.parse_args()
+    load_env()
     engine = Engine()
     if args.revisar:
         from .learning import review

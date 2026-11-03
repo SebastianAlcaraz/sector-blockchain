@@ -95,7 +95,8 @@ class ApiBackend:
 
 def find_claude_binary() -> str | None:
     """El programa `claude`: CLAUDE_BIN, el PATH o la ruta del instalador oficial (~/.local/bin)."""
-    for candidate in (os.environ.get("CLAUDE_BIN"), shutil.which("claude"), str(Path.home() / ".local" / "bin" / "claude")):
+    local_bin = Path.home() / ".local" / "bin"
+    for candidate in (os.environ.get("CLAUDE_BIN"), shutil.which("claude"), str(local_bin / "claude"), str(local_bin / "claude.exe")):
         if candidate and Path(candidate).exists():
             return candidate
     return None
