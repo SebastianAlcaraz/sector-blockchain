@@ -39,7 +39,9 @@ class FixedAdvisor:
 
 
 def make_engine(tmp_path, decisions, **cfg_kw):
-    cfg = BotConfig(lista_activos=["AAA", "BBB"], referencia="SPY", capital_inicial=10_000, diferencial_pct=0, **cfg_kw)
+    base = dict(modo="simulacion", universo="lista", requiere_aprobacion=True)
+    base.update(cfg_kw)
+    cfg = BotConfig(lista_activos=["AAA", "BBB"], referencia="SPY", capital_inicial=10_000, diferencial_pct=0, **base)
     return Engine(tmp_path, cfg=cfg, source=FixedSource(), advisor=FixedAdvisor(decisions), news_fn=lambda t: [])
 
 
@@ -92,6 +94,8 @@ def test_paper_broker_buy_sell_with_spread(tmp_path):
 
 def test_etoro_broker_refuses_non_demo_paths():
     class FakeClient:
+        cache = {}
+
         def _request(self, *a, **k):
             raise AssertionError("no debería llamarse")
 

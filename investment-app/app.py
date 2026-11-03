@@ -17,7 +17,7 @@ from invest.data import DemoSource, YahooSource
 from invest.indicators import bollinger, macd, rsi, sma
 from invest.llm import BACKENDS as LLM_BACKENDS
 from invest.trading import config as bot_config
-from invest.trading.broker import BrokerError
+from invest.trading.broker import BrokerError, PaperBroker
 from invest.trading.engine import Engine
 
 APP_DIR = Path(__file__).parent
@@ -77,8 +77,10 @@ def style_chart(fig: go.Figure, height: int = 420) -> go.Figure:
 
 @st.cache_data(ttl=900, show_spinner="Descargando cotizaciones…")
 def load_closes(source_name: str, tickers: tuple[str, ...], period: str) -> pd.DataFrame:
-    source = DemoSource() if source_name == DemoSource.name else YahooSource()
-    return source.closes(list(tickers), period)
+    from invest.data import make_source
+
+    key = {DemoSource.name: "demo", "eToro": "etoro"}.get(source_name, "yahoo")
+    return make_source(key).closes(list(tickers), period)
 
 
 def get_closes(tickers: list[str], period: str) -> pd.DataFrame:
@@ -94,10 +96,13 @@ def get_closes(tickers: list[str], period: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=900, show_spinner="Buscando noticias…")
-def load_news(source_name: str, ticker: str, limit: int = 20) -> list[news.NewsItem]:
+def load_news(source_name: str, ticker: str, limit: int = 25) -> list[news.NewsItem]:
     if source_name == DemoSource.name:
         return news.demo_news(ticker, all_assets().get(ticker, ticker), limit)
-    return news.yahoo_news(ticker, limit)
+    from invest.trading.engine import default_dir
+
+    sources = bot_config.BotConfig.load(default_dir() / "config.json").fuentes_noticias  # mismas fuentes que el bot
+    return news.aggregate_news(ticker, all_assets().get(ticker, ticker), sources, limit)
 
 
 @st.cache_data(ttl=600, show_spinner="Leyendo la comunidad de eToro…")
@@ -152,7 +157,7 @@ def render_items(items: list[news.NewsItem], scored: list[sentiment.Scored]) -> 
     for item, sc in zip(items, scored):
         when = item.published.strftime("%d/%m/%Y %H:%M") if item.published else ""
         title = f"[{item.title}]({item.url})" if item.url else item.title
-        meta = " · ".join(x for x in [item.source, when] if x)
+        meta = " · ".join(x for x in [item.source, when, f"vía {item.via}" if item.via else ""] if x)
         st.markdown(f"{SENT_ICON[sc.label]} **{title}**  \n<span style='opacity:.7;font-size:.85em'>{meta} · {sc.label} ({sc.score:+.2f}) — {sc.reason}</span>", unsafe_allow_html=True)
 
 
@@ -173,9 +178,12 @@ page = st.sidebar.radio(
 )
 SOURCE = st.sidebar.radio(
     "Fuente de datos",
-    [YahooSource.name, DemoSource.name],
-    help="Yahoo Finance da cotizaciones reales (con ~15 min de retraso). El modo demo usa precios simulados y funciona sin conexión.",
+    ["eToro", YahooSource.name, DemoSource.name],
+    help="eToro: precios de eToro (necesita tus claves; si falta algún activo, se completa con Yahoo). "
+    "Yahoo Finance: cotizaciones gratuitas con ~15 min de retraso. Demo: precios y noticias simulados, sin conexión.",
 )
+if SOURCE == "eToro" and not news.EToroClient.configured():
+    st.sidebar.caption("Sin claves de eToro: se usan los precios de Yahoo Finance.")
 if SOURCE == DemoSource.name:
     st.sidebar.info("Estás viendo **precios y noticias simulados**. No los uses para decidir.")
 ANALYZER = st.sidebar.radio(
@@ -331,7 +339,8 @@ def page_asset() -> None:
 
 def page_news() -> None:
     st.header("Noticias y sentimiento")
-    st.caption("Titulares recientes clasificados como positivos, neutrales o negativos para el precio del activo.")
+    st.caption("Titulares recientes de varias fuentes (Yahoo Finance, Google News en español e inglés y eToro, sin duplicados), "
+               "clasificados como positivos, neutrales o negativos para el precio del activo. Las fuentes se eligen en la configuración del bot.")
     mode = st.radio("Ver", ["Un activo", "Toda mi cartera"], horizontal=True)
 
     if mode == "Toda mi cartera":
@@ -740,12 +749,24 @@ def page_bot() -> None:
     engine = Engine()
     cfg = engine.cfg
     store = engine.store
+    etoro_ok = news.EToroClient.configured()
+    real_mode = cfg.modo if cfg.modo != "etoro_demo" or etoro_ok else "simulacion"
+    st.info(
+        "🧪 **Solo dinero virtual.** El bot opera en "
+        + ("la **cuenta demo de eToro**" if real_mode == "etoro_demo" else "la **simulación local**"
+           + (" (faltan las claves de eToro para usar la cuenta demo)" if cfg.modo == "etoro_demo" else ""))
+        + ". No existe ninguna opción para operar con dinero real: hará falta una orden expresa tuya y un cambio en el programa."
+    )
+    data_label = {"etoro": "eToro (Yahoo de respaldo)" if etoro_ok else "Yahoo Finance (faltan claves de eToro)", "yahoo": "Yahoo Finance", "demo": "simulados"}[cfg.fuente_datos]
     st.caption(
-        f"Modo: **{bot_config.MODES[cfg.modo]}** · Asesor: **{bot_config.ADVISORS[cfg.asesor]}**"
+        f"Asesor: **{bot_config.ADVISORS[cfg.asesor]}**"
         + (f" vía **{LLM_BACKENDS[cfg.motor_ia]}**" if cfg.asesor == "claude" else "") + " · "
-        f"Aprobación: **{'tú apruebas cada operación' if cfg.requiere_aprobacion else 'automática'}**. "
-        "La IA propone; unas reglas de riesgo fijas filtran cada propuesta antes de llegar aquí. "
-        f"Datos del bot: **{'Yahoo Finance' if cfg.fuente_datos == 'yahoo' else 'simulados'}** (se cambia en Configuración, abajo)."
+        f"Decisiones: **{'las apruebas tú' if cfg.requiere_aprobacion else 'el bot compra y vende solo'}** · "
+        f"Elige entre: **{'todo el catálogo' if cfg.universo == 'catalogo' else 'tu lista de activos'}** "
+        f"({cfg.max_candidatos} mejores candidatos por ciclo) · Precios: **{data_label}** · "
+        f"Noticias: **{', '.join(news.NEWS_SOURCES.get(x, x) for x in cfg.fuentes_noticias)}**"
+        + (" + comunidad de eToro" if cfg.comunidad_etoro else "") + ". "
+        "Unas reglas de riesgo fijas revisan cada operación antes de ejecutarla."
     )
 
     paused = store.paused
@@ -788,7 +809,7 @@ def page_bot() -> None:
     k = st.columns(4)
     k[0].metric("Valor de la cartera", money(equity))
     k[1].metric("Efectivo", money(cash), help=f"{pct(cash / equity)} de la cartera" if equity else None)
-    if cfg.modo == "simulacion":
+    if isinstance(engine.broker, PaperBroker):
         k[2].metric("Resultado", money(equity - cfg.capital_inicial), pct(equity / cfg.capital_inicial - 1, True))
     if len(hist) >= 2 and hist["benchmark"].notna().sum() >= 2:
         b = hist.dropna(subset=["benchmark"])
@@ -882,9 +903,17 @@ def page_bot() -> None:
             a, b, c = st.columns(3)
             modo = a.selectbox("Modo", list(bot_config.MODES), index=list(bot_config.MODES).index(cfg.modo), format_func=bot_config.MODES.get)
             asesor = b.selectbox("Asesor", list(bot_config.ADVISORS), index=list(bot_config.ADVISORS).index(cfg.asesor), format_func=bot_config.ADVISORS.get)
-            fuente = c.selectbox("Datos de mercado", ["yahoo", "demo"], index=["yahoo", "demo"].index(cfg.fuente_datos), format_func={"yahoo": "Yahoo Finance (reales)", "demo": "Simulados"}.get)
+            srcs = ["etoro", "yahoo", "demo"]
+            fuente = c.selectbox("Precios", srcs, index=srcs.index(cfg.fuente_datos), format_func={"etoro": "eToro (Yahoo de respaldo)", "yahoo": "Yahoo Finance", "demo": "Simulados"}.get)
+            a, b = st.columns([1, 2])
+            universo = a.radio("El bot elige entre", ["catalogo", "lista"], index=["catalogo", "lista"].index(cfg.universo),
+                               format_func={"catalogo": "Todo el catálogo (acciones, ETF, materias primas, cripto)", "lista": "Solo mi lista"}.get)
+            candidatos = a.number_input("Candidatos estudiados a fondo por ciclo", 3, 40, int(cfg.max_candidatos),
+                                        help="Los mejores según la estrategia, más lo que ya tiene en cartera. Más candidatos = más consultas de noticias y más uso de Claude.")
             options = sorted(set(all_assets()) | set(cfg.lista_activos))
-            lista = st.multiselect("Activos que el bot puede operar", options, default=cfg.lista_activos, format_func=label)
+            lista = b.multiselect("Mi lista (con 'Todo el catálogo' se añade a él)", options, default=cfg.lista_activos, format_func=label)
+            fuentes = b.multiselect("Fuentes de noticias", list(news.NEWS_SOURCES), default=[x for x in cfg.fuentes_noticias if x in news.NEWS_SOURCES], format_func=news.NEWS_SOURCES.get)
+            comunidad = b.checkbox("Tener en cuenta la opinión de la comunidad de eToro (aparte de las noticias)", value=cfg.comunidad_etoro)
             a, b, c, d = st.columns(4)
             max_op = a.number_input("Máx. por operación (%)", 0.5, 50.0, float(cfg.max_operacion_pct), 0.5)
             max_pos = b.number_input("Máx. por activo (%)", 1.0, 100.0, float(cfg.max_posicion_pct), 1.0)
@@ -913,7 +942,8 @@ def page_bot() -> None:
                     "max_operacion_pct": max_op, "max_posicion_pct": max_pos, "min_liquidez_pct": min_liq, "stop_loss_pct": stop,
                     "max_perdida_diaria_pct": p_dia, "max_perdida_semanal_pct": p_sem, "max_operaciones_dia": int(ops), "confianza_minima": conf,
                     "capital_inicial": capital, "requiere_aprobacion": aprobacion, "stop_loss_automatico": sl_auto,
-                    "motor_ia": motor, "modelo_ia": modelo, "respaldo_reglas": respaldo})
+                    "motor_ia": motor, "modelo_ia": modelo, "respaldo_reglas": respaldo,
+                    "universo": universo, "max_candidatos": int(candidatos), "fuentes_noticias": fuentes or ["yahoo"], "comunidad_etoro": comunidad})
                 errors = engine.save_config(new)
                 if errors:
                     st.error(" ".join(errors))
@@ -933,7 +963,7 @@ def page_bot() -> None:
                     st.error(f"No funcionó: {type(exc).__name__}: {exc}")
         if not cfg.requiere_aprobacion:
             st.warning("El bot opera sin pedir aprobación. Revisa los límites de riesgo.")
-        if cfg.modo == "simulacion":
+        if isinstance(engine.broker, PaperBroker):
             confirm = st.checkbox("Quiero borrar la simulación y empezar de cero")
             if st.button("Reiniciar simulación", disabled=not confirm):
                 engine.reset_simulation()

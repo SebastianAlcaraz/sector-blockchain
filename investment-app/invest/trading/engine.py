@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..catalog import label
-from ..data import DemoSource, YahooSource
-from ..news import demo_news, yahoo_news
+from ..catalog import CATALOG, label
+from ..data import make_source
+from ..news import EToroClient, aggregate_news, demo_news
 from ..sentiment import LexiconAnalyzer, aggregate
 from ..llm import LLMError, get_backend
 from .advisor import Advice, ClaudeAdvisor, RuleAdvisor
 from .broker import BrokerError, EToroDemoBroker, PaperBroker
-from .config import BotConfig
+from .config import UNIVERSE_CLASSES, BotConfig
 from .market import snapshot
 from .learning import active_strategy, evaluate_decisions
 from .risk import RiskContext, buying_blocked, check_buy, check_sell, stop_loss_hits
@@ -36,23 +36,63 @@ class Engine:
         self._source = source
         self._advisor = advisor
         self._broker = broker
-        self.news_fn = news_fn or (lambda t: demo_news(t, label(t), 8) if self.cfg.fuente_datos == "demo" else yahoo_news(t, 8))
+        self.news_fn = news_fn or self._default_news
+        self.community_fn = None if news_fn else self._community_posts  # en pruebas con noticias falsas, sin comunidad
+        self._etoro_client = None
+        self._etoro_general = None  # noticias generales de eToro (una petición por ciclo)
+        self.news_errors: list[str] = []
 
     # ---------------------------------------------------------- piezas
     @property
     def source(self):
         if self._source is None:
-            self._source = DemoSource() if self.cfg.fuente_datos == "demo" else YahooSource()
+            self._source = make_source(self.cfg.fuente_datos)
         return self._source
+
+    @property
+    def etoro(self) -> EToroClient | None:
+        """Cliente de eToro compartido; recuerda los identificadores de los activos entre ciclos."""
+        if self._etoro_client is None and EToroClient.configured():
+            self._etoro_client = EToroClient(cache=self.store.get("etoro_ids", {}) or {})
+        return self._etoro_client
+
+    def save_etoro_cache(self) -> None:
+        if self._etoro_client is not None:
+            self.store.set("etoro_ids", self._etoro_client.cache)
+
+    def universe(self) -> list[str]:
+        """Activos entre los que el bot puede elegir."""
+        if self.cfg.universo == "catalogo":
+            base = [t for c in UNIVERSE_CLASSES for t in CATALOG[c]]
+            return list(dict.fromkeys(base + list(self.cfg.lista_activos)))
+        return list(self.cfg.lista_activos)
 
     @property
     def broker(self):
         if self._broker is None:
-            if self.cfg.modo == "etoro_demo":
-                self._broker = EToroDemoBroker()
+            if self.cfg.modo == "etoro_demo" and self.etoro is not None:
+                self._broker = EToroDemoBroker(self.etoro, self.universe())
             else:
+                if self.cfg.modo == "etoro_demo":
+                    self.store.log("aviso", "Faltan las claves de eToro: el bot opera en la simulación local hasta que las añadas.")
                 self._broker = PaperBroker(self.store, self.cfg.capital_inicial, self.cfg.diferencial_pct)
         return self._broker
+
+    def _default_news(self, ticker: str):
+        if self.cfg.fuente_datos == "demo":
+            return demo_news(ticker, label(ticker).split(" (")[0], 8)
+        if "etoro" in self.cfg.fuentes_noticias and self.etoro is not None and self._etoro_general is None:
+            try:
+                self._etoro_general = self.etoro.news()
+            except Exception:
+                self._etoro_general = []
+        name = label(ticker).split(" (")[0]
+        return aggregate_news(ticker, name, self.cfg.fuentes_noticias, 20, self.etoro, self._etoro_general, self.news_errors)
+
+    def _community_posts(self, ticker: str):
+        if not self.cfg.comunidad_etoro or self.etoro is None or self.cfg.fuente_datos == "demo":
+            return []
+        return self.etoro.instrument_posts(ticker, 25)
 
     def llm_backend(self):
         return get_backend(self.cfg.motor_ia)
@@ -119,7 +159,12 @@ class Engine:
         self.expire_proposals()
 
         held = list(self.broker.positions())
-        prices, closes = self.prices(cfg.lista_activos + held + [cfg.referencia], "1y")
+        universe = self.universe()
+        self._etoro_general, self.news_errors = None, []
+        prices, closes = self.prices(universe + held + [cfg.referencia], "1y")
+        backup = getattr(self.source, "used_backup", [])
+        if backup:
+            self.store.log("aviso", f"eToro no dio precios de {len(backup)} activo(s); se usó Yahoo Finance: {', '.join(backup[:10])}.")
         if not prices:
             self.store.log("error", "No se pudieron obtener precios. Se reintentará en el próximo ciclo.")
             return {"ok": False, "error": "sin precios"}
@@ -139,21 +184,43 @@ class Engine:
         strategy = active_strategy(self)
         params = StrategyParams.from_dict(strategy["params"])
         held_since = self._held_since()
+        # 1) Estudio técnico de todo el universo (barato: solo precios).
         snaps = []
-        for t in cfg.lista_activos:
+        for t in universe:
             if t not in closes or closes[t].dropna().size < 30:
-                self.store.log("aviso", f"Sin datos suficientes de {t}; se omite en este ciclo.")
+                if t in cfg.lista_activos or t in ctx.positions:
+                    self.store.log("aviso", f"Sin datos suficientes de {t}; se omite en este ciclo.")
                 continue
             s = snapshot(t, closes[t])
+            s.puntuacion_estrategia = score_snapshot(s, params)
+            snaps.append(s)
+        # 2) Preselección: lo que tienes en cartera + los mejores candidatos según la estrategia.
+        held_set = set(ctx.positions)
+        ranked = sorted((s for s in snaps if s.ticker not in held_set), key=lambda s: s.puntuacion_estrategia, reverse=True)
+        snaps = [s for s in snaps if s.ticker in held_set] + ranked[: max(cfg.max_candidatos, 1)]
+        # 3) Estudio a fondo de los preseleccionados: noticias de varias fuentes y comunidad de eToro.
+        lex = LexiconAnalyzer()
+        for s in snaps:
+            t = s.ticker
             try:
                 items = self.news_fn(t)
             except Exception:
                 items = []
             if items:
-                scored, _ = LexiconAnalyzer().score_many([i.text for i in items])
+                scored, _ = lex.score_many([i.text for i in items])
                 agg = aggregate(scored, [i.published for i in items])
                 s.sentimiento, s.sentimiento_veredicto = round(agg.score, 3), agg.label
-                s.titulares = [i.title for i in items[:5]]
+                s.titulares = [i.title for i in items[:6]]
+                s.fuentes_noticias = sorted({v.strip() for i in items for v in (i.via or "").split(",") if v.strip()})
+            if self.community_fn:
+                try:
+                    posts = self.community_fn(t)
+                except Exception:
+                    posts = []
+                if posts:
+                    pscored, _ = lex.score_many([p.text for p in posts])
+                    s.sentimiento_comunidad = round(aggregate(pscored, [p.published for p in posts]).score, 3)
+                    s.opiniones_comunidad = [p.title[:160] for p in posts[:3]]
             pos = ctx.positions.get(t)
             if pos:
                 s.en_cartera_unidades = pos.units
@@ -162,7 +229,9 @@ class Engine:
                 if t in held_since:
                     s.dias_en_cartera = (datetime.now(timezone.utc) - datetime.fromisoformat(held_since[t])).days
             s.puntuacion_estrategia = score_snapshot(s, params)
-            snaps.append(s)
+        self.save_etoro_cache()
+        if self.news_errors:
+            self.store.log("aviso", "Algunas fuentes de noticias fallaron: " + "; ".join(sorted(set(self.news_errors))[:6]))
 
         cash_pct = 100 * ctx.cash / ctx.equity if ctx.equity else 100
         try:
@@ -239,7 +308,7 @@ class Engine:
                     if old["side"] == "comprar":
                         ctx.pending_buys -= old["amount"] or 0
                     ctx.pending_count -= 1
-            v = check_buy(d, ctx, self.cfg) if d.accion == "comprar" else check_sell(d, ctx, self.cfg, full_only)
+            v = check_buy(d, ctx, self.cfg, set(self.universe())) if d.accion == "comprar" else check_sell(d, ctx, self.cfg, full_only)
             price = ctx.prices.get(d.ticker, 0.0)
             if not v.ok:
                 self.store.add_proposal(d.ticker, d.accion, price, confidence=d.confianza, reason=d.motivo, risks=d.riesgos, checks=v.notes, status="descartada")

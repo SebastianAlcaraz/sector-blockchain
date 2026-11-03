@@ -76,6 +76,90 @@ class DemoSource:
         return pd.DataFrame(out, index=idx).iloc[-keep:]
 
 
+class EToroSource:
+    """Precios de eToro: velas diarias + último precio. Necesita ETORO_API_KEY y ETORO_USER_KEY.
+
+    Sin probar con una cuenta real (rutas según la documentación pública de eToro).
+    """
+
+    name = "eToro"
+
+    def __init__(self, client=None):
+        from .news import EToroClient
+
+        self.client = client or EToroClient()
+        self.missing: list[str] = []  # activos que eToro no devolvió en la última llamada
+
+    def closes(self, tickers: list[str], period: str = "2y") -> pd.DataFrame:
+        from .news import EToroError
+
+        tickers = list(dict.fromkeys(t for t in tickers if t))
+        count = max(int(PERIOD_DAYS.get(period, 730) * 252 / 365) + 5, 30)  # eToro admite hasta 1000 velas
+        series, ids, self.missing = {}, {}, []
+        for t in tickers:
+            try:
+                found = self.client.find_instrument(t)
+                if not found:
+                    self.missing.append(t)
+                    continue
+                s = self.client.candles(found["instrumentId"], count)
+                if s.empty:
+                    self.missing.append(t)
+                    continue
+                series[t], ids[t] = s, found["instrumentId"]
+            except EToroError:
+                self.missing.append(t)
+        if not series:
+            return pd.DataFrame()
+        out = pd.DataFrame(series).sort_index()
+        # Precio del momento: se añade (o actualiza) la fila de hoy con la última cotización.
+        try:
+            live = self.client.rates(list(ids.values()))
+        except EToroError:
+            live = {}
+        today = pd.Timestamp.today().normalize()
+        for t, iid in ids.items():
+            if iid in live:
+                out.loc[today, t] = live[iid]
+        return out.sort_index().ffill().dropna(how="all")
+
+
+class FallbackSource:
+    """Usa la fuente principal y completa con la de respaldo los activos que falten."""
+
+    def __init__(self, primary, backup):
+        self.primary, self.backup = primary, backup
+        self.name = f"{primary.name} (respaldo: {backup.name})"
+        self.used_backup: list[str] = []
+
+    def closes(self, tickers: list[str], period: str = "2y") -> pd.DataFrame:
+        try:
+            main = self.primary.closes(tickers, period)
+        except Exception:
+            main = pd.DataFrame()
+        missing = [t for t in tickers if t not in main.columns]
+        self.used_backup = missing
+        if not missing:
+            return main
+        extra = self.backup.closes(missing, period)
+        if main.empty:
+            return extra
+        if extra.empty:
+            return main
+        return main.join(extra, how="outer").sort_index().ffill()
+
+
+def make_source(name: str):
+    """'etoro' (con Yahoo de respaldo), 'yahoo' o 'demo'."""
+    from .news import EToroClient
+
+    if name == "demo":
+        return DemoSource()
+    if name == "etoro" and EToroClient.configured():
+        return FallbackSource(EToroSource(), YahooSource())
+    return YahooSource()
+
+
 def last_prices(source, tickers: list[str]) -> dict[str, float]:
     """Último precio disponible de cada símbolo."""
     df = source.closes(tickers, period="1mo")

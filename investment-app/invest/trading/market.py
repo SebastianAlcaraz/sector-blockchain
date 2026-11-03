@@ -33,6 +33,9 @@ class AssetSnapshot:
     sentimiento: float | None = None
     sentimiento_veredicto: str = "Sin datos"
     titulares: list[str] = field(default_factory=list)
+    fuentes_noticias: list[str] = field(default_factory=list)
+    sentimiento_comunidad: float | None = None  # opiniones de inversores de eToro (no son noticias)
+    opiniones_comunidad: list[str] = field(default_factory=list)
     en_cartera_unidades: float = 0.0
     en_cartera_peso: float = 0.0
     en_cartera_ganancia: float | None = None

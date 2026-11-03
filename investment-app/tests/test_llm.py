@@ -105,7 +105,7 @@ class LimitedBackend:
 
 
 def demo_engine(tmp_path, **kw):
-    cfg = BotConfig(lista_activos=["SPY", "AAPL", "GC=F"], referencia="SPY", fuente_datos="demo", asesor="claude", motor_ia="suscripcion", **kw)
+    cfg = BotConfig(lista_activos=["SPY", "AAPL", "GC=F"], referencia="SPY", fuente_datos="demo", asesor="claude", motor_ia="suscripcion", modo="simulacion", universo="lista", **kw)
     e = Engine(tmp_path, cfg=cfg, news_fn=lambda t: [])
     e.llm_backend = lambda: LimitedBackend()
     return e

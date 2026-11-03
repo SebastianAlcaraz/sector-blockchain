@@ -57,6 +57,19 @@ Tu cartera se guarda localmente en `data/cartera.json` (excluido de git).
 
 Nunca guardes las claves dentro del código ni las subas al repositorio.
 
+## Fuentes de datos
+
+| Qué | Fuentes | Si falla |
+|---|---|---|
+| **Precios** | **eToro** (velas diarias y último precio) | Los activos que eToro no dé se completan con **Yahoo Finance** |
+| **Noticias** | **Yahoo Finance**, **Google News** en español e inglés, y **eToro** | Una fuente que falla no detiene a las demás |
+| **Opinión de inversores** | Comunidad de **eToro** (publicaciones sobre cada activo) | Se omite |
+
+- Las noticias repetidas entre fuentes se unen en una sola, indicando todas las fuentes que la publicaron.
+- La opinión de la comunidad se analiza **aparte** de las noticias, con menos peso.
+- Las fuentes se eligen en la configuración del bot.
+- La integración con eToro está hecha a partir de su documentación pública y **no se ha probado todavía con una cuenta real**.
+
 ## Bot de inversión
 
 ```
@@ -68,8 +81,16 @@ Temporizador (cada ~4 h) → estudio de mercado → la IA propone → control de
 - **Control de riesgo** (reglas fijas que la IA no puede saltarse): solo activos de tu lista; máximo por operación (5 %) y por activo (20 %);
   liquidez mínima (10 %); stop-loss en cada compra (8 %); límites de pérdida diaria (3 %) y semanal (6 %, detiene el bot);
   máximo de operaciones al día; confianza mínima; sin apalancamiento. Todo se ajusta en la web.
-- **Aprobación**: cada propuesta espera a que pulses *Aprobar* o *Rechazar*. Caduca a las 6 h, y si el precio se ha movido
-  más de un 2 % desde la propuesta no se ejecuta.
+- **Decide y opera solo** (por defecto). Por cada ciclo:
+  1. estudia todo el catálogo (acciones, ETF, materias primas y criptomonedas) con la estrategia;
+  2. elige los mejores candidatos (12 por defecto) más lo que ya tiene en cartera;
+  3. los analiza a fondo con noticias, comunidad y Claude;
+  4. compra o vende sin esperar aprobación, siempre dentro de los límites de riesgo.
+
+  Si prefieres aprobar cada operación, actívalo en la configuración: las propuestas caducan a las 6 h y no se ejecutan si
+  el precio se ha movido más de un 2 %.
+- **Solo dinero virtual**: opera en la **cuenta demo de eToro**, o en la simulación local si faltan las claves de eToro.
+  No existe ningún modo de dinero real en el programa: pasar a real requiere una orden expresa y un cambio de código.
 - **Botón de parada de emergencia**: detiene análisis y compras. Los stop-loss siguen protegiendo las posiciones.
 - **Modos**:
   - *Simulación local* (por defecto): precios reales, dinero ficticio, con coste por operación simulado.

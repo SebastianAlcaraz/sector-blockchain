@@ -27,6 +27,7 @@ class NewsItem:
     source: str = ""
     published: datetime | None = None
     ticker: str = ""
+    via: str = ""  # de qué servicio viene: Yahoo Finance, Google News, eToro...
 
     @property
     def text(self) -> str:
@@ -61,7 +62,7 @@ def parse_yahoo_item(raw: dict, ticker: str = "") -> NewsItem | None:
     source = provider.get("displayName", "") if isinstance(provider, dict) else c.get("publisher", "")
     published = _parse_time(c.get("pubDate") or c.get("displayTime") or c.get("providerPublishTime"))
     summary = (c.get("summary") or c.get("description") or "").strip()
-    return NewsItem(title, summary, url, source, published, ticker)
+    return NewsItem(title, summary, url, source, published, ticker, "Yahoo Finance")
 
 
 def yahoo_news(ticker: str, limit: int = 20) -> list[NewsItem]:
@@ -112,7 +113,7 @@ def demo_news(ticker: str, name: str, limit: int = 12) -> list[NewsItem]:
         r = rng.random()
         pool = _DEMO_POS if r < 0.35 + bias * 0.5 else _DEMO_NEG if r < 0.75 else _DEMO_NEU
         title = rng.choice(pool).format(n=name)
-        out.append(NewsItem(title, "", "", "Noticia simulada", now - timedelta(hours=rng.uniform(1, 24 * 7)), ticker))
+        out.append(NewsItem(title, "", "", "Noticia simulada", now - timedelta(hours=rng.uniform(1, 24 * 7)), ticker, "Demo"))
     out.sort(key=lambda i: i.published, reverse=True)
     return out
 
@@ -123,26 +124,28 @@ class EToroError(RuntimeError):
 
 
 class EToroClient:
-    """Cliente mínimo de la API pública de eToro.
+    """Cliente de la API pública de eToro.
 
-    EXPERIMENTAL: las rutas y el formato de las respuestas proceden de la documentación pública
-    de eToro y no se han podido probar con una cuenta real. Si algo falla, revisa
-    https://api-portal.etoro.com y ajusta las rutas de abajo.
+    Rutas tomadas de la documentación pública de eToro (api-portal.etoro.com y builders.etoro.com).
+    NO se han podido probar con una cuenta real: si algo falla, ajusta las rutas de esta clase.
 
-    Configura las claves como variables de entorno (nunca en el código):
+    Claves como variables de entorno (nunca en el código):
       ETORO_API_KEY   clave de la aplicación
       ETORO_USER_KEY  clave de usuario
     """
 
     BASE = "https://public-api.etoro.com/api/v1"
     NEWS_PATH = "/feeds/news"
-    INSTRUMENT_FEED_PATH = "/feeds/instrument/{instrument_id}"
+    INSTRUMENT_FEED_PATH = "/feeds/instrument/{market_id}"
     SEARCH_PATH = "/market-data/search"
+    CANDLES_PATH = "/market-data/instruments/{instrument_id}/history/candles/{direction}/{interval}/{count}"
+    RATES_PATH = "/market-data/instruments/rates"
 
-    def __init__(self, api_key: str | None = None, user_key: str | None = None, timeout: float = 15):
+    def __init__(self, api_key: str | None = None, user_key: str | None = None, timeout: float = 15, cache: dict | None = None):
         self.api_key = api_key or os.environ.get("ETORO_API_KEY", "")
         self.user_key = user_key or os.environ.get("ETORO_USER_KEY", "")
         self.timeout = timeout
+        self.cache = cache if cache is not None else {}  # ticker -> {"instrumentId", "marketId", "symbol"}
 
     @classmethod
     def configured(cls) -> bool:
@@ -180,13 +183,22 @@ class EToroClient:
         if isinstance(payload, list):
             return [p for p in payload if isinstance(p, dict)]
         if isinstance(payload, dict):
-            for key in ("items", "posts", "data", "results", "feed", "news", "discussions"):
+            for key in ("items", "posts", "data", "results", "feed", "news", "discussions", "instruments", "rates", "candles"):
                 if key in payload:
                     return EToroClient._items(payload[key])
         return []
 
     @staticmethod
-    def _to_news(raw: dict, ticker: str = "") -> NewsItem | None:
+    def _field(d: dict, *names):
+        """Lee un campo admitiendo variantes de mayúsculas (instrumentId / InstrumentID)."""
+        lower = {k.lower(): v for k, v in d.items()}
+        for n in names:
+            if n.lower() in lower and lower[n.lower()] is not None:
+                return lower[n.lower()]
+        return None
+
+    @staticmethod
+    def _to_news(raw: dict, ticker: str = "", via: str = "eToro") -> NewsItem | None:
         msg = raw.get("message") if isinstance(raw.get("message"), dict) else raw
         text = next((str(msg[k]).strip() for k in ("title", "text", "body", "content", "message") if isinstance(msg.get(k), str) and msg[k].strip()), "")
         if not text:
@@ -196,35 +208,226 @@ class EToroClient:
         source = (owner.get("username") or owner.get("userName") or "") if isinstance(owner, dict) else ""
         published = _parse_time(raw.get("created") or raw.get("createdAt") or raw.get("date") or raw.get("publishedAt"))
         url = raw.get("url") or raw.get("link") or ""
-        return NewsItem(title[:300], rest.strip()[:500], url, source or "eToro", published, ticker)
+        return NewsItem(title[:300], rest.strip()[:500], url, source or "eToro", published, ticker, via)
 
-    def news(self, limit: int = 20) -> list[NewsItem]:
-        items = self._items(self._get(self.NEWS_PATH, {"take": limit}))
-        return [n for n in (self._to_news(i) for i in items) if n][:limit]
-
-    def find_instrument_id(self, symbol: str) -> int | None:
-        payload = self._get(self.SEARCH_PATH, {"internalSymbolFull": symbol, "fields": "instrumentId,internalSymbolFull,displayname"})
-        for item in self._items(payload):
-            sym = str(item.get("internalSymbolFull") or item.get("symbol") or "").upper()
-            if sym == symbol.upper() and item.get("instrumentId") is not None:
-                return int(item["instrumentId"])
+    # ---------------------------------------------------------- instrumentos
+    def find_instrument(self, ticker: str) -> dict | None:
+        """Busca el activo en eToro (primero el símbolo completo, después la equivalencia). Se guarda en caché."""
+        if ticker in self.cache:
+            return self.cache[ticker]
+        for symbol in dict.fromkeys([_ETORO_SYMBOLS.get(ticker, ticker), to_etoro_symbol(ticker)]):
+            payload = self._get(self.SEARCH_PATH, {"internalSymbolFull": symbol, "fields": "instrumentId,internalSymbolFull,displayname,marketId", "pageSize": 5})
+            for item in self._items(payload):
+                sym = str(self._field(item, "internalSymbolFull", "symbol") or "").upper()
+                iid = self._field(item, "instrumentId")
+                if sym == symbol.upper() and iid is not None:
+                    found = {"instrumentId": int(iid), "marketId": self._field(item, "marketId"), "symbol": sym}
+                    self.cache[ticker] = found
+                    return found
         return None
 
-    def instrument_posts(self, symbol: str, limit: int = 30) -> list[NewsItem]:
-        iid = self.find_instrument_id(to_etoro_symbol(symbol))
-        if iid is None:
-            raise EToroError(f"eToro: no se encontró el activo {symbol}.")
-        items = self._items(self._get(self.INSTRUMENT_FEED_PATH.format(instrument_id=iid), {"take": limit}))
-        return [n for n in (self._to_news(i, symbol) for i in items) if n][:limit]
+    def find_instrument_id(self, symbol: str) -> int | None:
+        found = self.find_instrument(symbol)
+        return found["instrumentId"] if found else None
+
+    # ---------------------------------------------------------- precios
+    def candles(self, instrument_id: int, count: int = 400, interval: str = "OneDay"):
+        """Velas diarias -> pd.Series de cierres indexada por fecha (sin zona horaria)."""
+        import pandas as pd
+
+        payload = self._get(self.CANDLES_PATH.format(instrument_id=instrument_id, direction="asc", interval=interval, count=min(int(count), 1000)))
+        rows = self._candle_rows(payload)
+        data = {}
+        for r in rows:
+            close = self._field(r, "close", "closeRate", "c")
+            when = _parse_time(self._field(r, "fromDate", "date", "time", "timestamp", "toDate"))
+            if close is None or when is None:
+                continue
+            ts = pd.Timestamp(when)
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert(None)
+            data[ts.normalize()] = float(close)
+        return pd.Series(data, dtype=float).sort_index()
+
+    @classmethod
+    def _candle_rows(cls, payload) -> list[dict]:
+        """Las velas pueden venir anidadas ({"candles": [{"instrumentID": .., "candles": [...]}]})."""
+        rows = cls._items(payload)
+        out = []
+        for r in rows:
+            inner = r.get("candles") if isinstance(r, dict) else None
+            if isinstance(inner, list):
+                out.extend(x for x in inner if isinstance(x, dict))
+            else:
+                out.append(r)
+        return out
+
+    def rates(self, instrument_ids: list[int]) -> dict[int, float]:
+        """Último precio de varios instrumentos (una petición por instrumento si no admite listas)."""
+        out: dict[int, float] = {}
+
+        def parse(payload):
+            for r in self._items(payload):
+                iid = self._field(r, "instrumentId")
+                price = self._field(r, "lastExecution", "lastPrice", "bid")
+                if iid is not None and price is not None:
+                    out[int(iid)] = float(price)
+
+        try:
+            parse(self._get(self.RATES_PATH, {"instrumentIds": ",".join(str(i) for i in instrument_ids)}))
+        except EToroError:
+            pass
+        for iid in instrument_ids:
+            if iid not in out:
+                try:
+                    parse(self._get(self.RATES_PATH, {"instrumentIds": str(iid)}))
+                except EToroError:
+                    continue
+        return out
+
+    # ---------------------------------------------------------- noticias y comunidad
+    def news(self, limit: int = 50) -> list[NewsItem]:
+        items = self._items(self._get(self.NEWS_PATH, {"take": limit}))
+        return [n for n in (self._to_news(i, via="eToro (noticias)") for i in items) if n][:limit]
+
+    def instrument_posts(self, ticker: str, limit: int = 30) -> list[NewsItem]:
+        found = self.find_instrument(ticker)
+        if not found:
+            raise EToroError(f"eToro: no se encontró el activo {ticker}.")
+        market_id = found.get("marketId") or found["instrumentId"]
+        items = self._items(self._get(self.INSTRUMENT_FEED_PATH.format(market_id=market_id), {"take": limit}))
+        return [n for n in (self._to_news(i, ticker, "eToro (comunidad)") for i in items) if n][:limit]
 
 
-# Equivalencias de símbolos Yahoo -> eToro para materias primas y cripto habituales.
+# Equivalencias de símbolos Yahoo -> eToro.
 _ETORO_SYMBOLS = {
     "GC=F": "GOLD", "SI=F": "SILVER", "HG=F": "COPPER", "PL=F": "PLATINUM", "CL=F": "OIL",
-    "BZ=F": "OILBRENT", "NG=F": "NATGAS", "BTC-USD": "BTC", "ETH-USD": "ETH", "SOL-USD": "SOL",
-    "^GSPC": "SPX500", "^IXIC": "NSDQ100", "^DJI": "DJ30", "EURUSD=X": "EURUSD",
+    "BZ=F": "OILBRENT", "NG=F": "NATGAS", "ZC=F": "CORN", "ZW=F": "WHEAT", "ZS=F": "SOYBEANS",
+    "KC=F": "COFFEE", "SB=F": "SUGAR", "BTC-USD": "BTC", "ETH-USD": "ETH", "SOL-USD": "SOL",
+    "^GSPC": "SPX500", "^IXIC": "NSDQ100", "^DJI": "DJ30", "^STOXX50E": "EUSTX50",
+    "EURUSD=X": "EURUSD", "USDMXN=X": "USDMXN",
 }
 
 
 def to_etoro_symbol(ticker: str) -> str:
     return _ETORO_SYMBOLS.get(ticker, ticker.split(".")[0])
+
+
+# ------------------------------------------------------------------ Google News (RSS, sin clave)
+_GOOGLE_EDITIONS = {"es": {"hl": "es", "gl": "ES", "ceid": "ES:es"}, "en": {"hl": "en-US", "gl": "US", "ceid": "US:en"}}
+
+
+def parse_rss(xml_text: str, ticker: str = "", via: str = "Google News") -> list[NewsItem]:
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+    out = []
+    for item in root.iter("item"):
+        title = (item.findtext("title") or "").strip()
+        if not title:
+            continue
+        source_el = item.find("source")
+        source = (source_el.text or "").strip() if source_el is not None else ""
+        if source and title.endswith(" - " + source):  # Google añade " - Medio" al final del titular
+            title = title[: -len(" - " + source)]
+        try:
+            published = parsedate_to_datetime(item.findtext("pubDate") or "")
+        except (TypeError, ValueError):
+            published = None
+        out.append(NewsItem(title, "", (item.findtext("link") or "").strip(), source, published, ticker, via))
+    return out
+
+
+def google_news_query(ticker: str, name: str) -> str:
+    from .catalog import asset_class
+
+    cls = asset_class(ticker)
+    if cls == "Materias primas":
+        return f'"{name}" precio OR price'
+    if cls == "Criptomonedas":
+        return f'"{name}"'
+    if cls in ("Acciones", "ETF"):
+        return f'"{name}" OR {ticker.split(".")[0]} stock'
+    return f'"{name}"'
+
+
+def google_news(ticker: str, name: str, edition: str = "es", limit: int = 15, timeout: float = 10) -> list[NewsItem]:
+    params = {"q": google_news_query(ticker, name) + " when:7d", **_GOOGLE_EDITIONS[edition]}
+    url = "https://news.google.com/rss/search?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (asistente-inversion)"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        items = parse_rss(resp.read().decode("utf-8", "replace"), ticker, f"Google News ({edition})")
+    return items[:limit]
+
+
+# ------------------------------------------------------------------ varias fuentes a la vez
+NEWS_SOURCES = {
+    "yahoo": "Yahoo Finance",
+    "google_es": "Google News (español)",
+    "google_en": "Google News (inglés)",
+    "etoro": "eToro (noticias)",
+}
+
+
+def _norm_title(t: str) -> set[str]:
+    import re
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", t.lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return {w for w in re.findall(r"[a-z0-9]+", t) if len(w) > 2}
+
+
+def dedupe(items: list[NewsItem], threshold: float = 0.7) -> list[NewsItem]:
+    """Quita titulares repetidos entre fuentes (misma noticia en Yahoo y Google, por ejemplo)."""
+    kept: list[tuple[set[str], NewsItem]] = []
+    for it in sorted(items, key=lambda i: i.published or datetime.min.replace(tzinfo=timezone.utc), reverse=True):
+        words = _norm_title(it.title)
+        dup = None
+        for w, k in kept:
+            if words and w and len(words & w) / len(words | w) >= threshold:
+                dup = k
+                break
+        if dup is None:
+            kept.append((words, it))
+        elif it.via and it.via not in dup.via:
+            dup.via = f"{dup.via}, {it.via}"
+    return [k for _, k in kept]
+
+
+def mentions(item: NewsItem, ticker: str, name: str) -> bool:
+    text = f" {item.title} {item.summary} ".lower()
+    base = ticker.split(".")[0].split("=")[0].split("-")[0].lower()
+    return name.lower() in text or (len(base) >= 3 and f" {base} " in text) or f"${base}" in text
+
+
+def aggregate_news(ticker: str, name: str, sources: list[str] | None = None, limit: int = 25, etoro_client: EToroClient | None = None,
+                   etoro_general: list[NewsItem] | None = None, errors: list[str] | None = None) -> list[NewsItem]:
+    """Titulares de varias fuentes, sin duplicados y ordenados por fecha. Una fuente que falla no detiene al resto."""
+    sources = sources or list(NEWS_SOURCES)
+    collected: list[NewsItem] = []
+
+    def safe(label, fn):
+        try:
+            collected.extend(fn())
+        except Exception as exc:  # red, límites, formato cambiado...
+            if errors is not None:
+                errors.append(f"{label}: {type(exc).__name__}")
+
+    if "yahoo" in sources:
+        safe("Yahoo Finance", lambda: yahoo_news(ticker, 15))
+    if "google_es" in sources:
+        safe("Google News (es)", lambda: google_news(ticker, name, "es"))
+    if "google_en" in sources:
+        safe("Google News (en)", lambda: google_news(ticker, name, "en"))
+    if "etoro" in sources and (etoro_client or EToroClient.configured()):
+        def etoro_items():
+            general = etoro_general if etoro_general is not None else (etoro_client or EToroClient()).news()
+            return [NewsItem(n.title, n.summary, n.url, n.source, n.published, ticker, n.via) for n in general if mentions(n, ticker, name)]
+
+        safe("eToro", etoro_items)
+    return dedupe(collected)[:limit]

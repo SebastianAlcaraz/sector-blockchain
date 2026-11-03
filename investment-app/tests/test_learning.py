@@ -16,7 +16,7 @@ TICKERS = ["SPY", "AAPL", "GC=F", "MSFT"]
 
 
 def demo_engine(tmp_path, asesor="reglas"):
-    cfg = BotConfig(lista_activos=TICKERS, referencia="SPY", fuente_datos="demo", asesor=asesor, diferencial_pct=0.1)
+    cfg = BotConfig(lista_activos=TICKERS, referencia="SPY", fuente_datos="demo", asesor=asesor, diferencial_pct=0.1, modo="simulacion", universo="lista", requiere_aprobacion=True)
     return Engine(tmp_path, cfg=cfg, news_fn=lambda t: [])
 
 

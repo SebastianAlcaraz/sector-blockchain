@@ -52,9 +52,9 @@ def buying_blocked(ctx: RiskContext, cfg: BotConfig) -> str | None:
     return None
 
 
-def check_buy(d: Decision, ctx: RiskContext, cfg: BotConfig) -> Verdict:
+def check_buy(d: Decision, ctx: RiskContext, cfg: BotConfig, allowed: set[str] | None = None) -> Verdict:
     notes: list[str] = []
-    if d.ticker not in cfg.lista_activos:
+    if d.ticker not in (allowed if allowed is not None else set(cfg.lista_activos)):
         return Verdict(False, notes=[f"{d.ticker} no está en tu lista de activos permitidos."])
     blocked = buying_blocked(ctx, cfg)
     if blocked:

@@ -105,12 +105,13 @@ class EToroDemoBroker:
     OPEN_BY_AMOUNT_PATH = "/trading/execution/demo/market-open-orders/by-amount"
     CLOSE_PATH = "/trading/execution/demo/market-close-orders/positions/{position_id}"
 
-    def __init__(self, client: EToroClient | None = None):
+    def __init__(self, client: EToroClient | None = None, universe: list[str] | None = None):
         self.client = client or EToroClient()
         if not EToroClient.configured() and client is None:
             raise BrokerError("Faltan las claves de eToro (ETORO_API_KEY y ETORO_USER_KEY).")
-        self._ids: dict[str, int] = {}
-        self._symbols: dict[int, str] = {}
+        self._ids: dict[str, int] = {t: v["instrumentId"] for t, v in self.client.cache.items() if v}
+        self._symbols: dict[int, str] = {i: t for t, i in self._ids.items()}
+        self.universe = universe or []
 
     def _call(self, method: str, path: str, body: dict | None = None):
         if "/demo/" not in path:
@@ -149,7 +150,19 @@ class EToroDemoBroker:
 
     def positions(self) -> dict[str, Position]:
         out: dict[str, Position] = {}
-        for raw in self._portfolio().get("positions", []) or []:
+        raw_positions = self._portfolio().get("positions", []) or []
+        # Traduce identificadores de eToro a símbolos: resuelve los activos del universo que falten.
+        unknown = {r.get("instrumentID") or r.get("instrumentId") for r in raw_positions} - set(self._symbols)
+        for t in self.universe:
+            if not unknown:
+                break
+            if t not in self._ids:
+                try:
+                    iid = self.instrument_id(t)
+                    unknown.discard(iid)
+                except BrokerError:
+                    continue
+        for raw in raw_positions:
             iid = raw.get("instrumentID") or raw.get("instrumentId")
             ticker = self._symbols.get(iid, f"eToro:{iid}")
             units = float(raw.get("units") or raw.get("amount", 0) / max(float(raw.get("openRate") or 1), 1e-9))
@@ -177,7 +190,7 @@ class EToroDemoBroker:
             raise BrokerError(f"No hay posición en {ticker} en la cuenta demo.")
         # eToro cierra posiciones completas: se cierran las necesarias hasta cubrir las unidades pedidas.
         for pid in pos.position_ids:
-            self._call("DELETE", self.CLOSE_PATH.format(position_id=pid))
+            self._call("POST", self.CLOSE_PATH.format(position_id=pid), {})
         closed = pos.units
         return Fill(closed, price, closed * price, 0.0)
 
