@@ -147,3 +147,9 @@ def test_no_real_money_mode_exists():
     assert not hasattr(broker, "EToroRealBroker")
     for path in (broker.EToroDemoBroker.PORTFOLIO_PATH, broker.EToroDemoBroker.OPEN_BY_AMOUNT_PATH, broker.EToroDemoBroker.CLOSE_PATH):
         assert "/demo/" in path
+
+
+def test_google_queries_use_each_language():
+    assert news.google_news_query("GC=F", "Oro", "en") == '"gold price"'
+    assert news.google_news_query("GC=F", "Oro", "es") == '"precio del oro"'
+    assert "acciones" in news.google_news_query("AAPL", "Apple", "es") and "stock" in news.google_news_query("AAPL", "Apple", "en")

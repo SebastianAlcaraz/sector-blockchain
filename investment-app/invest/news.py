@@ -342,21 +342,35 @@ def parse_rss(xml_text: str, ticker: str = "", via: str = "Google News") -> list
     return out
 
 
-def google_news_query(ticker: str, name: str) -> str:
+# Términos de búsqueda de materias primas en cada idioma: "Oro" en inglés encuentra "Cagayan de Oro".
+_COMMODITY_TERMS = {
+    "GC=F": ("precio del oro", "gold price"), "SI=F": ("precio de la plata", "silver price"),
+    "HG=F": ("precio del cobre", "copper price"), "PL=F": ("precio del platino", "platinum price"),
+    "CL=F": ("petróleo WTI", "WTI crude oil"), "BZ=F": ("petróleo Brent", "Brent crude oil"),
+    "NG=F": ("precio del gas natural", "natural gas prices"), "ZC=F": ("precio del maíz", "corn futures"),
+    "ZW=F": ("precio del trigo", "wheat futures"), "ZS=F": ("precio de la soja", "soybean futures"),
+    "KC=F": ("precio del café", "coffee futures"), "SB=F": ("precio del azúcar", "sugar futures"),
+}
+
+
+def google_news_query(ticker: str, name: str, edition: str = "es") -> str:
     from .catalog import asset_class
 
     cls = asset_class(ticker)
+    if ticker in _COMMODITY_TERMS:
+        es, en = _COMMODITY_TERMS[ticker]
+        return f'"{es if edition == "es" else en}"'
     if cls == "Materias primas":
-        return f'"{name}" precio OR price'
+        return f'"{name}" precio' if edition == "es" else f'"{name}" price'
     if cls == "Criptomonedas":
         return f'"{name}"'
     if cls in ("Acciones", "ETF"):
-        return f'"{name}" OR {ticker.split(".")[0]} stock'
+        return f'"{name}" OR {ticker.split(".")[0]} ' + ("acciones" if edition == "es" else "stock")
     return f'"{name}"'
 
 
 def google_news(ticker: str, name: str, edition: str = "es", limit: int = 15, timeout: float = 10) -> list[NewsItem]:
-    params = {"q": google_news_query(ticker, name) + " when:7d", **_GOOGLE_EDITIONS[edition]}
+    params = {"q": google_news_query(ticker, name, edition) + " when:7d", **_GOOGLE_EDITIONS[edition]}
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (asistente-inversion)"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
