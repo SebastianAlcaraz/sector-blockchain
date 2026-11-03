@@ -2,6 +2,13 @@
 # Uso (desde la carpeta del programa, en PowerShell):
 #   powershell -ExecutionPolicy Bypass -File deploy\windows\instalar.ps1
 # Guia paso a paso: deploy\windows\GUIA-WINDOWS.md
+#
+# -ClaudeCode si|no   instala (o no) Claude Code sin preguntar. Util si lo ejecuta Claude u otro programa.
+
+param(
+    [ValidateSet("preguntar", "si", "no")]
+    [string]$ClaudeCode = "preguntar"
+)
 
 $ErrorActionPreference = "Stop"
 $App = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -67,7 +74,10 @@ $claudeExe = Join-Path $HOME ".local\bin\claude.exe"
 if ((Get-Command claude -ErrorAction SilentlyContinue) -or (Test-Path $claudeExe)) {
     Write-Host "    Ya esta instalado."
 } else {
-    $resp = Read-Host "    Instalar Claude Code? Solo hace falta si vas a usar tu suscripcion [s/N]"
+    $resp = $ClaudeCode
+    if ($resp -eq "preguntar") {
+        $resp = Read-Host "    Instalar Claude Code? Solo hace falta si vas a usar tu suscripcion [s/N]"
+    }
     if ($resp -match '^[sS]') {
         Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression
     }
