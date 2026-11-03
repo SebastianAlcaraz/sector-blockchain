@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 
@@ -28,6 +28,7 @@ class NewsItem:
     published: datetime | None = None
     ticker: str = ""
     via: str = ""  # de qué servicio viene: Yahoo Finance, Google News, eToro...
+    tags: list = field(default_factory=list)  # activos etiquetados (publicaciones de eToro)
 
     @property
     def text(self) -> str:
@@ -198,17 +199,34 @@ class EToroClient:
         return None
 
     @staticmethod
-    def _to_news(raw: dict, ticker: str = "", via: str = "eToro") -> NewsItem | None:
-        msg = raw.get("message") if isinstance(raw.get("message"), dict) else raw
+    def _to_news(raw: dict, ticker: str = "", via: str = "eToro", focus: tuple[str, ...] = ()) -> NewsItem | None:
+        """Convierte una publicación de eToro. Formato real: {"post": {"message": {"text"}, "owner", "created", "tags"}}.
+
+        Muchas publicaciones repasan varios activos a la vez: con `focus` (símbolos o nombres) se quedan
+        solo los párrafos que hablan del activo, para no mezclar el tono de otras noticias.
+        """
+        post = raw.get("post") if isinstance(raw.get("post"), dict) else raw
+        msg = post.get("message") if isinstance(post.get("message"), dict) else post
         text = next((str(msg[k]).strip() for k in ("title", "text", "body", "content", "message") if isinstance(msg.get(k), str) and msg[k].strip()), "")
         if not text:
             return None
+        tags = []
+        for t in post.get("tags") or []:
+            market = t.get("market") if isinstance(t, dict) else None
+            if isinstance(market, dict) and market.get("symbolName"):
+                tags.append(str(market["symbolName"]).upper())
+        if focus and len(tags) > 1:
+            paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
+            keys = [f.lower() for f in focus if f]
+            relevant = [p for p in paragraphs if any(k in p.lower() for k in keys)]
+            if relevant:
+                text = "\n".join(relevant)
         title, _, rest = text.partition("\n")
-        owner = raw.get("owner") or raw.get("author") or raw.get("user") or {}
+        owner = post.get("owner") or post.get("author") or post.get("user") or {}
         source = (owner.get("username") or owner.get("userName") or "") if isinstance(owner, dict) else ""
-        published = _parse_time(raw.get("created") or raw.get("createdAt") or raw.get("date") or raw.get("publishedAt"))
-        url = raw.get("url") or raw.get("link") or ""
-        return NewsItem(title[:300], rest.strip()[:500], url, source or "eToro", published, ticker, via)
+        published = _parse_time(post.get("created") or post.get("createdAt") or post.get("date") or post.get("publishedAt"))
+        url = post.get("url") or post.get("link") or ""
+        return NewsItem(title[:300], rest.strip()[:600], url, source or "eToro", published, ticker, via, tags)
 
     # ---------------------------------------------------------- instrumentos
     def find_instrument(self, ticker: str) -> dict | None:
@@ -287,16 +305,19 @@ class EToroClient:
 
     # ---------------------------------------------------------- noticias y comunidad
     def news(self, limit: int = 50) -> list[NewsItem]:
+        """Feed de noticias de eToro. Son publicaciones seleccionadas de inversores (no artículos de prensa),
+        etiquetadas con los activos de los que hablan."""
         items = self._items(self._get(self.NEWS_PATH, {"take": limit}))
-        return [n for n in (self._to_news(i, via="eToro (noticias)") for i in items) if n][:limit]
+        return [n for n in (self._to_news(i, via="eToro (feed de noticias)") for i in items) if n][:limit]
 
-    def instrument_posts(self, ticker: str, limit: int = 30) -> list[NewsItem]:
+    def instrument_posts(self, ticker: str, limit: int = 30, name: str = "") -> list[NewsItem]:
         found = self.find_instrument(ticker)
         if not found:
             raise EToroError(f"eToro: no se encontró el activo {ticker}.")
-        market_id = found.get("marketId") or found["instrumentId"]
+        market_id = found.get("marketId") or found["instrumentId"]  # en eToro coinciden con el instrumentId
+        focus = (found.get("symbol", ""), f"${found.get('symbol', '')}", name)
         items = self._items(self._get(self.INSTRUMENT_FEED_PATH.format(market_id=market_id), {"take": limit}))
-        return [n for n in (self._to_news(i, ticker, "eToro (comunidad)") for i in items) if n][:limit]
+        return [n for n in (self._to_news(i, ticker, "eToro (comunidad)", focus) for i in items) if n][:limit]
 
 
 # Equivalencias de símbolos Yahoo -> eToro.
@@ -383,7 +404,7 @@ NEWS_SOURCES = {
     "yahoo": "Yahoo Finance",
     "google_es": "Google News (español)",
     "google_en": "Google News (inglés)",
-    "etoro": "eToro (noticias)",
+    "etoro": "eToro (feed de noticias)",
 }
 
 
@@ -414,6 +435,8 @@ def dedupe(items: list[NewsItem], threshold: float = 0.7) -> list[NewsItem]:
 
 
 def mentions(item: NewsItem, ticker: str, name: str) -> bool:
+    if item.tags:  # publicaciones de eToro: etiquetas exactas de los activos
+        return to_etoro_symbol(ticker).upper() in item.tags or ticker.upper() in item.tags
     text = f" {item.title} {item.summary} ".lower()
     base = ticker.split(".")[0].split("=")[0].split("-")[0].lower()
     return name.lower() in text or (len(base) >= 3 and f" {base} " in text) or f"${base}" in text
@@ -441,7 +464,7 @@ def aggregate_news(ticker: str, name: str, sources: list[str] | None = None, lim
     if "etoro" in sources and (etoro_client or EToroClient.configured()):
         def etoro_items():
             general = etoro_general if etoro_general is not None else (etoro_client or EToroClient()).news()
-            return [NewsItem(n.title, n.summary, n.url, n.source, n.published, ticker, n.via) for n in general if mentions(n, ticker, name)]
+            return [NewsItem(n.title, n.summary, n.url, n.source, n.published, ticker, n.via, n.tags) for n in general if mentions(n, ticker, name)]
 
         safe("eToro", etoro_items)
     return dedupe(collected)[:limit]

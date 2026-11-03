@@ -163,11 +163,13 @@ class EToroDemoBroker:
                 except BrokerError:
                     continue
         for raw in raw_positions:
+            if raw.get("mirrorID") or raw.get("mirrorId"):
+                continue  # posiciones de copy trading: no las gestiona el bot
             iid = raw.get("instrumentID") or raw.get("instrumentId")
             ticker = self._symbols.get(iid, f"eToro:{iid}")
             units = float(raw.get("units") or raw.get("amount", 0) / max(float(raw.get("openRate") or 1), 1e-9))
             rate = float(raw.get("openRate") or 0)
-            stop = raw.get("stopLossRate")
+            stop = None if raw.get("isNoStopLoss") else raw.get("stopLossRate")
             pid = raw.get("positionID") or raw.get("positionId")
             if ticker in out:
                 old = out[ticker]

@@ -153,3 +153,45 @@ def test_google_queries_use_each_language():
     assert news.google_news_query("GC=F", "Oro", "en") == '"gold price"'
     assert news.google_news_query("GC=F", "Oro", "es") == '"precio del oro"'
     assert "acciones" in news.google_news_query("AAPL", "Apple", "es") and "stock" in news.google_news_query("AAPL", "Apple", "en")
+
+
+# Estructura real de las publicaciones de eToro (comprobada con la API), con datos inventados.
+REAL_FEED = {"discussions": [
+    {"id": "a", "post": {"id": "a", "owner": {"username": "inversor1"}, "created": "2026-11-03T14:18:53.028Z",
+     "message": {"text": "Resumen del día\n\nApple supera las previsiones pero advierte sobre los márgenes.\n\nEl petróleo se desploma ante las esperanzas de paz.\n\n$AAPL $OIL", "languageCode": "es-es"},
+     "tags": [{"market": {"id": "1001", "symbolName": "AAPL", "internalId": 1001}}, {"market": {"id": "17", "symbolName": "OIL", "internalId": 17}}]}},
+    {"id": "b", "post": {"id": "b", "owner": {"username": "inversor2"}, "created": "2026-11-03T13:00:00Z",
+     "message": {"text": "El oro sigue fuerte"}, "tags": [{"market": {"id": "18", "symbolName": "GOLD"}}]}},
+]}
+
+
+def test_real_etoro_post_format_and_focus():
+    items = EToroClient._items(REAL_FEED)
+    n = EToroClient._to_news(items[0], "AAPL", "eToro (comunidad)", ("AAPL", "$AAPL", "Apple"))
+    assert n.source == "inversor1" and n.published.day == 3 and n.tags == ["AAPL", "OIL"]
+    # Solo el párrafo que habla de Apple (no el del petróleo).
+    assert "Apple supera" in n.title + n.summary and "petróleo" not in n.title + n.summary
+
+
+def test_etoro_general_feed_matched_by_tags():
+    general = [EToroClient._to_news(i, via="eToro (feed de noticias)") for i in EToroClient._items(REAL_FEED)]
+    assert [g.source for g in general if news.mentions(g, "GC=F", "Oro")] == ["inversor2"]
+    assert [g.source for g in general if news.mentions(g, "AAPL", "Apple")] == ["inversor1"]
+
+
+def test_demo_portfolio_ignores_disabled_stop_and_copy_trading():
+    from invest.trading.broker import EToroDemoBroker
+
+    class Client(FakeEToro):
+        def _request(self, method, path, params=None, body=None):
+            if path == "/trading/info/demo/portfolio":
+                return {"clientPortfolio": {"credit": 1000.0, "positions": [
+                    {"positionID": 1, "instrumentID": 1001, "units": 2.0, "openRate": 300.0, "stopLossRate": 0.0001, "isNoStopLoss": True, "mirrorID": 0},
+                    {"positionID": 2, "instrumentID": 1001, "units": 5.0, "openRate": 310.0, "stopLossRate": 280.0, "isNoStopLoss": False, "mirrorID": 77},
+                ]}}
+            return super()._request(method, path, params, body)
+
+    b = EToroDemoBroker(Client(), ["AAPL"])
+    pos = b.positions()
+    assert b.cash() == 1000.0
+    assert list(pos) == ["AAPL"] and pos["AAPL"].units == 2.0 and pos["AAPL"].stop_price is None

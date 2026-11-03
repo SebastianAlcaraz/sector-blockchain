@@ -92,7 +92,7 @@ class Engine:
     def _community_posts(self, ticker: str):
         if not self.cfg.comunidad_etoro or self.etoro is None or self.cfg.fuente_datos == "demo":
             return []
-        return self.etoro.instrument_posts(ticker, 25)
+        return self.etoro.instrument_posts(ticker, 25, label(ticker).split(" (")[0])
 
     def llm_backend(self):
         return get_backend(self.cfg.motor_ia)
