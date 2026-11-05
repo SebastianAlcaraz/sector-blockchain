@@ -251,6 +251,13 @@ class EToroClient:
     # ---------------------------------------------------------- precios
     def candles(self, instrument_id: int, count: int = 400, interval: str = "OneDay"):
         """Velas diarias -> pd.Series de cierres indexada por fecha (sin zona horaria)."""
+        return self.candles_ohlc(instrument_id, count, interval)["close"]
+
+    def candles_ohlc(self, instrument_id: int, count: int = 400, interval: str = "OneDay"):
+        """Velas diarias -> pd.DataFrame con máximo, mínimo y cierre, indexado por fecha.
+
+        Si una vela no trae máximo o mínimo, se usa el cierre (el ATR saldrá algo más bajo).
+        """
         import pandas as pd
 
         payload = self._get(self.CANDLES_PATH.format(instrument_id=instrument_id, direction="asc", interval=interval, count=min(int(count), 1000)))
@@ -264,8 +271,16 @@ class EToroClient:
             ts = pd.Timestamp(when)
             if ts.tzinfo is not None:
                 ts = ts.tz_convert(None)
-            data[ts.normalize()] = float(close)
-        return pd.Series(data, dtype=float).sort_index()
+            high = self._field(r, "high", "highRate", "h")
+            low = self._field(r, "low", "lowRate", "l")
+            close = float(close)
+            data[ts.normalize()] = (
+                max(float(high), close) if high is not None else close,
+                min(float(low), close) if low is not None else close,
+                close,
+            )
+        df = pd.DataFrame.from_dict(data, orient="index", columns=["high", "low", "close"], dtype=float)
+        return df.sort_index()
 
     @classmethod
     def _candle_rows(cls, payload) -> list[dict]:

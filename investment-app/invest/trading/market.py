@@ -41,6 +41,8 @@ class AssetSnapshot:
     en_cartera_ganancia: float | None = None
     dias_en_cartera: int | None = None
     puntuacion_estrategia: float | None = None
+    atr_pct: float | None = None  # movimiento diario normal (ATR de 14 días), en % del precio
+    stop_pct: float | None = None  # distancia del stop-loss que se usaría al comprar, en %
 
     def as_dict(self) -> dict:
         d = asdict(self)

@@ -15,26 +15,47 @@ PERIOD_DAYS = {"1mo": 31, "3mo": 92, "6mo": 183, "1y": 365, "2y": 730, "5y": 182
 class YahooSource:
     name = "Yahoo Finance"
 
-    def closes(self, tickers: list[str], period: str = "2y") -> pd.DataFrame:
-        """Cierres ajustados, una columna por símbolo."""
-        import yfinance as yf
-
-        tickers = list(dict.fromkeys(t for t in tickers if t))
-        if not tickers:
-            return pd.DataFrame()
-        raw = yf.download(tickers, period=period, auto_adjust=True, progress=False, threads=True)
-        if raw is None or raw.empty:
-            return pd.DataFrame()
+    def _field(self, raw: pd.DataFrame, field: str, tickers: list[str]) -> pd.DataFrame:
         if isinstance(raw.columns, pd.MultiIndex):
-            out = raw["Close"]
+            out = raw[field]
         else:
-            out = raw[["Close"]].rename(columns={"Close": tickers[0]})
+            out = raw[[field]].rename(columns={field: tickers[0]})
         if isinstance(out, pd.Series):
             out = out.to_frame(tickers[0])
         out = out.reindex(columns=[t for t in tickers if t in out.columns])
         out.index = pd.to_datetime(out.index).tz_localize(None)
+        return out
+
+    def _download(self, tickers: list[str], period: str):
+        import yfinance as yf
+
+        raw = yf.download(tickers, period=period, auto_adjust=True, progress=False, threads=True)
+        return None if raw is None or raw.empty else raw
+
+    def closes(self, tickers: list[str], period: str = "2y") -> pd.DataFrame:
+        """Cierres ajustados, una columna por símbolo."""
+        tickers = list(dict.fromkeys(t for t in tickers if t))
+        raw = self._download(tickers, period) if tickers else None
+        if raw is None:
+            return pd.DataFrame()
+        out = self._field(raw, "Close", tickers)
         # Los mercados tienen calendarios distintos (cripto cotiza a diario): rellenamos huecos hacia delante.
         return out.ffill().dropna(how="all").dropna(axis=1, how="all")
+
+    def ohlc(self, tickers: list[str], period: str = "6mo") -> dict[str, pd.DataFrame]:
+        """Velas diarias (máximo, mínimo y cierre ajustados) de cada símbolo."""
+        tickers = list(dict.fromkeys(t for t in tickers if t))
+        raw = self._download(tickers, period) if tickers else None
+        if raw is None:
+            return {}
+        fields = {k: self._field(raw, k.capitalize(), tickers) for k in ("high", "low", "close")}
+        out = {}
+        for t in tickers:
+            if t in fields["close"]:
+                df = pd.DataFrame({k: v[t] for k, v in fields.items()}).dropna()
+                if not df.empty:
+                    out[t] = df
+        return out
 
 
 class DemoSource:
@@ -74,6 +95,25 @@ class DemoSource:
             start = p0 * rng.uniform(0.3, 1.7)
             out[t] = start * np.exp(np.cumsum(log_ret))
         return pd.DataFrame(out, index=idx).iloc[-keep:]
+
+    def ohlc(self, tickers: list[str], period: str = "6mo") -> dict[str, pd.DataFrame]:
+        """Máximos y mínimos simulados alrededor de los cierres (reproducibles)."""
+        from .catalog import asset_class
+
+        closes = self.closes(tickers, period)
+        out = {}
+        for t in closes:
+            c = closes[t]
+            sigma = self._PARAMS[asset_class(t)][1] / np.sqrt(252)
+            rng = np.random.default_rng(zlib.crc32(("ohlc" + t).encode()))
+            top = pd.concat([c, c.shift(1)], axis=1).max(axis=1)
+            bottom = pd.concat([c, c.shift(1)], axis=1).min(axis=1)
+            out[t] = pd.DataFrame({
+                "high": top * (1 + np.abs(rng.normal(0, sigma * 0.5, len(c)))),
+                "low": bottom * (1 - np.abs(rng.normal(0, sigma * 0.5, len(c)))),
+                "close": c,
+            })
+        return out
 
 
 class EToroSource:
@@ -123,6 +163,21 @@ class EToroSource:
                 out.loc[today, t] = live[iid]
         return out.sort_index().ffill().dropna(how="all")
 
+    def ohlc(self, tickers: list[str], period: str = "6mo") -> dict[str, pd.DataFrame]:
+        from .news import EToroError
+
+        count = max(int(PERIOD_DAYS.get(period, 183) * 252 / 365) + 5, 30)
+        out = {}
+        for t in dict.fromkeys(t for t in tickers if t):
+            try:
+                found = self.client.find_instrument(t)
+                df = self.client.candles_ohlc(found["instrumentId"], count) if found else None
+            except EToroError:
+                df = None
+            if df is not None and not df.empty:
+                out[t] = df
+        return out
+
 
 class FallbackSource:
     """Usa la fuente principal y completa con la de respaldo los activos que falten."""
@@ -147,6 +202,16 @@ class FallbackSource:
         if extra.empty:
             return main
         return main.join(extra, how="outer").sort_index().ffill()
+
+    def ohlc(self, tickers: list[str], period: str = "6mo") -> dict[str, pd.DataFrame]:
+        try:
+            out = dict(self.primary.ohlc(tickers, period))
+        except Exception:
+            out = {}
+        missing = [t for t in tickers if t not in out]
+        if missing:
+            out.update(self.backup.ohlc(missing, period))
+        return out
 
 
 def make_source(name: str):

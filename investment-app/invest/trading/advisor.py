@@ -107,7 +107,8 @@ class ClaudeAdvisor:
                 "max_compra_pct_por_operacion": cfg.max_operacion_pct,
                 "max_peso_por_activo_pct": cfg.max_posicion_pct,
                 "liquidez_minima_pct": cfg.min_liquidez_pct,
-                "stop_loss_pct": cfg.stop_loss_pct,
+                "stop_loss": "stop_pct de cada activo (según su ATR)" if cfg.tipo_stop == "atr" else f"{cfg.stop_loss_pct} % fijo",
+                "riesgo_max_por_operacion_pct": cfg.riesgo_operacion_pct,
                 "apalancamiento": "no permitido",
             },
             "estrategia": {

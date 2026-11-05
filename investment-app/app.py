@@ -922,7 +922,17 @@ def page_bot() -> None:
             max_op = a.number_input("Máx. por operación (%)", 0.5, 50.0, float(cfg.max_operacion_pct), 0.5)
             max_pos = b.number_input("Máx. por activo (%)", 1.0, 100.0, float(cfg.max_posicion_pct), 1.0)
             min_liq = c.number_input("Liquidez mínima (%)", 0.0, 90.0, float(cfg.min_liquidez_pct), 1.0)
-            stop = d.number_input("Stop-loss (%)", 1.0, 50.0, float(cfg.stop_loss_pct), 0.5)
+            stop = d.number_input("Stop-loss fijo (%)", 1.0, 50.0, float(cfg.stop_loss_pct), 0.5,
+                                  help="Se usa con el stop fijo, o con el de ATR cuando no hay velas del activo.")
+            a, b, c, d = st.columns(4)
+            tipo_stop = a.selectbox("Tipo de stop-loss", list(bot_config.STOP_TYPES), index=list(bot_config.STOP_TYPES).index(cfg.tipo_stop),
+                                    format_func=bot_config.STOP_TYPES.get,
+                                    help="ATR: el stop se aleja más en activos que se mueven mucho (cripto) y se acerca en los tranquilos (ETF).")
+            atr_mult = b.number_input("Stop = ATR ×", 0.5, 6.0, float(cfg.stop_atr_multiplo), 0.5,
+                                      help="ATR = movimiento diario normal del activo. 2 deja margen para el ruido del día a día.")
+            stop_max = c.number_input("Stop ATR máximo (%)", 1.0, 50.0, float(cfg.stop_max_pct), 1.0)
+            riesgo = d.number_input("Riesgo máx. por operación (%)", 0.1, 10.0, float(cfg.riesgo_operacion_pct), 0.1,
+                                    help="Lo máximo que se pierde de la cartera si salta el stop. El importe se reduce si hace falta.")
             a, b, c, d = st.columns(4)
             p_dia = a.number_input("Pérdida máx. diaria (%)", 0.5, 50.0, float(cfg.max_perdida_diaria_pct), 0.5)
             p_sem = b.number_input("Pérdida máx. semanal (%)", 0.5, 50.0, float(cfg.max_perdida_semanal_pct), 0.5)
@@ -944,6 +954,7 @@ def page_bot() -> None:
             if st.form_submit_button("Guardar configuración", type="primary"):
                 new = bot_config.BotConfig(**{**cfg.__dict__, "modo": modo, "asesor": asesor, "fuente_datos": fuente, "lista_activos": lista,
                     "max_operacion_pct": max_op, "max_posicion_pct": max_pos, "min_liquidez_pct": min_liq, "stop_loss_pct": stop,
+                    "tipo_stop": tipo_stop, "stop_atr_multiplo": atr_mult, "stop_max_pct": stop_max, "riesgo_operacion_pct": riesgo,
                     "max_perdida_diaria_pct": p_dia, "max_perdida_semanal_pct": p_sem, "max_operaciones_dia": int(ops), "confianza_minima": conf,
                     "capital_inicial": capital, "requiere_aprobacion": aprobacion, "stop_loss_automatico": sl_auto,
                     "motor_ia": motor, "modelo_ia": modelo, "respaldo_reglas": respaldo,

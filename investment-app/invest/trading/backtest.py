@@ -10,7 +10,9 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
+from ..indicators import atr_pct_from_closes
 from .config import BotConfig
+from .risk import stop_pct_for
 from .strategy import StrategyParams, score_series
 
 
@@ -40,6 +42,8 @@ def run(closes: pd.DataFrame, params: StrategyParams, cfg: BotConfig, start=None
     if end is not None:
         idx = idx[idx <= end]
     spread = cfg.diferencial_pct / 100
+    # Solo hay cierres: el ATR se aproxima con el cambio entre cierres (ver indicators.atr_pct_from_closes).
+    vol = {t: atr_pct_from_closes(closes[t]) for t in tickers} if cfg.tipo_stop == "atr" else {}
     cash, pos = 1.0, {}  # pos: ticker -> [unidades, precio_entrada, día_entrada, stop]
     curve, trades, wins = [], 0, 0
     for n, day in enumerate(idx):
@@ -66,11 +70,14 @@ def run(closes: pd.DataFrame, params: StrategyParams, cfg: BotConfig, start=None
                         trades += 1
                         del pos[t]
                 elif sc >= params.umbral_compra:
+                    a = vol[t].get(day) if t in vol else None
+                    stop_pct, _ = stop_pct_for(cfg, None if a is None or np.isnan(a) else float(a))
                     amount = min(params.tamano_pct, cfg.max_operacion_pct) / 100 * equity
+                    amount = min(amount, cfg.riesgo_operacion_pct / stop_pct * equity)
                     amount = min(amount, cash - cfg.min_liquidez_pct / 100 * equity)
                     if amount > 0.001 * equity:
                         fill = prices[t] * (1 + spread / 2)
-                        pos[t] = [amount / fill, fill, day, fill * (1 - cfg.stop_loss_pct / 100)]
+                        pos[t] = [amount / fill, fill, day, fill * (1 - stop_pct / 100)]
                         cash -= amount
         curve.append(cash + sum(u * prices[t] for t, (u, *_) in pos.items()))
     curve = pd.Series(curve, index=idx)

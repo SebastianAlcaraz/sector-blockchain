@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS proposals (
     checks TEXT,                   -- notas del control de riesgo (JSON)
     status TEXT NOT NULL,          -- pendiente / aprobada / rechazada / ejecutada / caducada / fallida
     decided TEXT,
-    result TEXT
+    result TEXT,
+    stop_pct REAL                  -- compras: distancia del stop-loss en % (NULL = el fijo de la configuración)
 );
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +99,9 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.conn() as c:
             c.executescript(SCHEMA)
+            cols = {r["name"] for r in c.execute("PRAGMA table_info(proposals)")}
+            if "stop_pct" not in cols:  # bases de datos creadas antes del stop por ATR
+                c.execute("ALTER TABLE proposals ADD COLUMN stop_pct REAL")
 
     @contextmanager
     def conn(self):
@@ -137,11 +141,11 @@ class Store:
             return [dict(r) for r in c.execute("SELECT * FROM events ORDER BY rowid DESC LIMIT ?", (limit,))]
 
     # ---------------------------------------------------------- propuestas
-    def add_proposal(self, ticker, side, price, amount=None, units=None, confidence=None, reason="", risks="", checks=None, status="pendiente") -> int:
+    def add_proposal(self, ticker, side, price, amount=None, units=None, confidence=None, reason="", risks="", checks=None, status="pendiente", stop_pct=None) -> int:
         with self.conn() as c:
             cur = c.execute(
-                "INSERT INTO proposals(created,ticker,side,amount,units,price,confidence,reason,risks,checks,status) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (now_iso(), ticker, side, amount, units, price, confidence, reason, risks, json.dumps(checks or [], ensure_ascii=False), status),
+                "INSERT INTO proposals(created,ticker,side,amount,units,price,confidence,reason,risks,checks,status,stop_pct) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (now_iso(), ticker, side, amount, units, price, confidence, reason, risks, json.dumps(checks or [], ensure_ascii=False), status, stop_pct),
             )
             return int(cur.lastrowid)
 

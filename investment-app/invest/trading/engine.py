@@ -17,7 +17,8 @@ from .broker import BrokerError, EToroDemoBroker, PaperBroker
 from .config import UNIVERSE_CLASSES, BotConfig
 from .market import snapshot
 from .learning import active_strategy, evaluate_decisions
-from .risk import RiskContext, buying_blocked, check_buy, check_sell, stop_loss_hits
+from ..indicators import atr
+from .risk import RiskContext, buying_blocked, check_buy, check_sell, stop_loss_hits, stop_pct_for
 from .store import Store
 from .strategy import StrategyParams, score_snapshot
 
@@ -198,6 +199,11 @@ class Engine:
         held_set = set(ctx.positions)
         ranked = sorted((s for s in snaps if s.ticker not in held_set), key=lambda s: s.puntuacion_estrategia, reverse=True)
         snaps = [s for s in snaps if s.ticker in held_set] + ranked[: max(cfg.max_candidatos, 1)]
+        # Volatilidad de los preseleccionados (velas completas): fija la distancia del stop y el tamaño.
+        ctx.atr_pct = self._atr_pct([s.ticker for s in snaps])
+        for s in snaps:
+            s.atr_pct = ctx.atr_pct.get(s.ticker)
+            s.stop_pct = stop_pct_for(cfg, s.atr_pct)[0]
         # 3) Estudio a fondo de los preseleccionados: noticias de varias fuentes y comunidad de eToro.
         lex = LexiconAnalyzer()
         for s in snaps:
@@ -255,6 +261,27 @@ class Engine:
             for p in self.store.proposals("pendiente"):
                 self.approve(p["id"], origin="automatica")
         return {"ok": True, "propuestas": created, "resumen": advice.resumen}
+
+    def _atr_pct(self, tickers: list[str]) -> dict[str, float]:
+        """ATR de 14 días en % del último cierre. Si la fuente no da velas, el stop será el fijo."""
+        if self.cfg.tipo_stop != "atr" or not tickers or not hasattr(self.source, "ohlc"):
+            return {}
+        try:
+            candles = self.source.ohlc(tickers, "6mo")
+        except Exception as exc:
+            self.store.log("aviso", f"No se pudieron obtener velas para el ATR ({exc}); se usa el stop fijo.")
+            return {}
+        out = {}
+        for t, df in candles.items():
+            if len(df) < 20:
+                continue
+            value = atr(df["high"], df["low"], df["close"]).iloc[-1]
+            if pd.notna(value) and df["close"].iloc[-1] > 0:
+                out[t] = round(float(value / df["close"].iloc[-1] * 100), 3)
+        missing = [t for t in tickers if t not in out]
+        if missing:
+            self.store.log("aviso", f"Sin velas para el ATR de {len(missing)} activo(s); usan el stop fijo: {', '.join(missing[:10])}.")
+        return out
 
     def _held_since(self) -> dict[str, str]:
         """Fecha de la última compra de cada activo (para saber cuántos días lleva en cartera)."""
@@ -318,6 +345,7 @@ class Engine:
                 amount=v.amount if d.accion == "comprar" else round(v.units * price, 2),
                 units=v.units if d.accion == "vender" else None,
                 confidence=d.confianza, reason=d.motivo, risks=d.riesgos, checks=v.notes,
+                stop_pct=v.stop_pct if d.accion == "comprar" else None,
             )
             if d.accion == "comprar":
                 ctx.pending_buys += v.amount
@@ -349,7 +377,7 @@ class Engine:
                 amount = min(p["amount"], max(spendable, 0))
                 if amount < self.cfg.importe_minimo:
                     raise BrokerError("Ya no hay efectivo suficiente respetando la liquidez mínima.")
-                stop = price * (1 - self.cfg.stop_loss_pct / 100)
+                stop = price * (1 - (p.get("stop_pct") or self.cfg.stop_loss_pct) / 100)
                 fill = self.broker.buy(p["ticker"], amount, price, stop)
             else:
                 if ctx.paused:

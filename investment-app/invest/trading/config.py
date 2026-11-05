@@ -9,6 +9,7 @@ from pathlib import Path
 MODES = {"simulacion": "Simulación local (dinero ficticio)", "etoro_demo": "Cuenta demo de eToro (dinero virtual)"}
 # A propósito no hay modo "real": operar con dinero real requiere una orden expresa y nuevo código.
 UNIVERSE_CLASSES = ("Acciones", "ETF", "Materias primas", "Criptomonedas")
+STOP_TYPES = {"atr": "Según la volatilidad (ATR)", "fijo": "Porcentaje fijo"}
 ADVISORS = {"claude": "IA (Claude)", "reglas": "Reglas técnicas (sin IA, gratis)"}
 
 
@@ -43,7 +44,11 @@ class BotConfig:
     max_perdida_semanal_pct: float = 6.0
     max_operaciones_dia: int = 4
     importe_minimo: float = 25.0
-    stop_loss_pct: float = 8.0
+    tipo_stop: str = "atr"  # "atr": según la volatilidad de cada activo; "fijo": siempre stop_loss_pct
+    stop_atr_multiplo: float = 2.0  # stop a N veces el ATR (movimiento diario normal) bajo el precio
+    stop_max_pct: float = 15.0  # tope del stop por ATR, para activos muy volátiles
+    stop_loss_pct: float = 8.0  # stop fijo, y el que se usa si no hay velas para calcular el ATR
+    riesgo_operacion_pct: float = 2.0  # pérdida máxima por operación si salta el stop, en % de la cartera
     stop_loss_automatico: bool = True  # vende sin esperar aprobación si salta el stop-loss
     confianza_minima: float = 0.6
 
@@ -87,6 +92,14 @@ class BotConfig:
                 errors.append(f"{name} debe estar entre 0 y 100.")
         if not 0 <= self.min_liquidez_pct < 100:
             errors.append("min_liquidez_pct debe estar entre 0 y 99.")
+        if self.tipo_stop not in STOP_TYPES:
+            errors.append(f"Tipo de stop desconocido: {self.tipo_stop}")
+        if not 0.5 <= self.stop_atr_multiplo <= 6:
+            errors.append("stop_atr_multiplo debe estar entre 0,5 y 6.")
+        if not 1 <= self.stop_max_pct <= 50:
+            errors.append("stop_max_pct debe estar entre 1 y 50.")
+        if not 0 < self.riesgo_operacion_pct <= 10:
+            errors.append("riesgo_operacion_pct debe estar entre 0 y 10.")
         if self.max_operacion_pct > self.max_posicion_pct:
             errors.append("max_operacion_pct no puede superar max_posicion_pct.")
         if not 0 <= self.confianza_minima <= 1:

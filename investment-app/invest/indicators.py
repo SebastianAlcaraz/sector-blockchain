@@ -40,3 +40,21 @@ def bollinger(close: pd.Series, window: int = 20, num_std: float = 2.0) -> pd.Da
     mid = sma(close, window)
     std = close.rolling(window, min_periods=window).std()
     return pd.DataFrame({"mid": mid, "upper": mid + num_std * std, "lower": mid - num_std * std})
+
+
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Rango verdadero medio (ATR) con el suavizado de Wilder: cuánto se mueve el precio en un día normal."""
+    prev = close.shift(1)
+    # El primer día no tiene cierre anterior: max() ignora los NaN y queda máximo - mínimo.
+    tr = pd.concat([high - low, (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+
+def atr_pct_from_closes(close: pd.Series, period: int = 14) -> pd.Series:
+    """Aproximación del ATR en % cuando solo hay cierres (se usa en las pruebas históricas).
+
+    Sin máximos ni mínimos el rango del día se estima con el cambio entre cierres, que suele quedarse
+    algo por debajo del ATR real.
+    """
+    tr = close.pct_change().abs()
+    return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() * 100
